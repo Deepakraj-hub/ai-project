@@ -1,0 +1,174 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@600;700&display=swap');
+
+body, html {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: #040103;
+  overflow: hidden;
+  font-family: 'Rajdhani', sans-serif;
+}
+
+/* Master Grid Wrapper */
+.pink-hud-wrapper {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  background: radial-gradient(circle at 25% 50%, #16030e 0%, #040103 100%);
+  box-sizing: border-box;
+  padding: 24px;
+  gap: 24px;
+}
+
+.pink-avatar-viewport {
+  flex: 1.2;
+  height: 100%;
+  position: relative;
+}
+
+.pink-control-panel {
+  flex: 0.8;
+  max-width: 500px; /* Slightly wider panel for larger text display */
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 2, 6, 0.65);
+  border: 1px solid #ff007f;
+  box-shadow: 0 0 20px rgba(255, 0, 127, 0.2);
+  border-radius: 6px;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+/* Header UI Title */
+.pink-terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 0, 127, 0.3);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.pink-agent-title {
+  font-family: 'Orbitron', sans-serif;
+  color: #ff007f;
+  font-weight: 900;
+  font-size: 20px; /* Increased header text size */
+  letter-spacing: 2px;
+  text-shadow: 0 0 8px rgba(255, 0, 127, 0.4);
+}
+
+.pink-status-pulse {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  color: #ffccf2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pink-pulse-dot {
+  width: 6px;
+  height: 6px;
+  background-color: #ff007f;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #ff007f;
+}
+
+.pink-terminal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─── CHAT CONSOLE WITH INCREASED FONT SIZE ─── */
+.hud-terminal-output {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-right: 4px;
+}
+
+.hud-terminal-output::-webkit-scrollbar {
+  width: 4px;
+}
+.hud-terminal-output::-webkit-scrollbar-thumb {
+  background: rgba(255, 0, 127, 0.4);
+}
+
+.message-bubble {
+  max-width: 92%;
+  padding: 14px 18px;
+  border-radius: 6px;
+  font-size: 18px; /* High-contrast increased font readability size */
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.5px;
+}
+
+.message-jarvis {
+  align-self: flex-start;
+  background: rgba(255, 0, 127, 0.08);
+  color: #ffeef7;
+  border-left: 3px solid #ff007f;
+}
+
+.message-user {
+  align-self: flex-end;
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+  border-right: 3px solid #ffffff;
+}
+
+/* Inputs Layout Rows */
+.hud-input-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+  border-top: 1px solid rgba(255, 0, 127, 0.2);
+  padding-top: 15px;
+}
+
+.hud-text-field {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 0, 127, 0.4);
+  padding: 14px;
+  color: #fff;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 16px;
+  outline: none;
+  border-radius: 4px;
+}
+
+.hud-text-field:focus {
+  border-color: #ff007f;
+}
+
+.hud-send-btn {
+  background: #ff007f;
+  color: #ffffff;
+  border: none;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 0 24px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.pink-terminal-footer {
+  display: flex;
+  justify-content: space-between;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  color: rgba(255, 0, 127, 0.4);
+  margin-top: 12px;
+  border-top: 1px solid rgba(255, 0, 127, 0.15);
+  padding-top: 8px;
+}
