@@ -1,54 +1,50 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Avatar } from './Avatar';
+import './App.css';
 
-// Text analyzer helper function to scan for emotions
+/* ── Helpers ───────────────────────────────── */
 const analyzeAIResponse = (text) => {
   if (!text) return 'neutral';
-  const lowerText = text.toLowerCase();
-
-  // Comedy / Laughter -> smiling
-  if (
-    lowerText.includes('haha') || lowerText.includes('hehe') || 
-    lowerText.includes('funny') || lowerText.includes('joke') || 
-    lowerText.includes('comedy') || lowerText.includes('😂') || lowerText.includes('🤣')
-  ) {
-    return 'smiling';
-  }
-
-  // Shy / Blushing -> shy
-  if (
-    lowerText.includes('sorry') || lowerText.includes('shy') || 
-    lowerText.includes('blush') || lowerText.includes('maybe') || 
-    lowerText.includes('😳') || lowerText.includes('🙈')
-  ) {
-    return 'shy';
-  }
-
-  // Sad / Emotional -> sad
-  if (
-    lowerText.includes('sad') || lowerText.includes('bad') || 
-    lowerText.includes('hurt') || lowerText.includes('cry') || 
-    lowerText.includes('unfortunately') || lowerText.includes('😔')
-  ) {
-    return 'sad';
-  }
-
-  // Angry / Frustrated -> angry
-  if (
-    lowerText.includes('angry') || lowerText.includes('wrong') || 
-    lowerText.includes('stop') || lowerText.includes('hate') || lowerText.includes('😡')
-  ) {
-    return 'angry';
-  }
-
+  const t = text.toLowerCase();
+  if (/haha|hehe|funny|joke|comedy|😂|🤣/.test(t)) return 'smiling';
+  if (/sorry|shy|blush|maybe|😳|🙈/.test(t)) return 'shy';
+  if (/sad|bad|hurt|cry|unfortunately|😔/.test(t)) return 'sad';
+  if (/angry|wrong|stop|hate|😡/.test(t)) return 'angry';
   return 'neutral';
 };
 
+const FEMALE_VOICE_RX = [/zira/i, /jenny/i, /aria/i, /sonia/i, /samantha/i, /michelle/i, /linda/i, /heera/i, /priya/i, /neerja/i, /emily/i];
+const MALE_VOICE_RX = [/david/i, /mark/i, /guy/i, /james/i, /george/i, /richard/i, /paul/i, /ryan/i, /brian/i, /male/i];
+
+const scoreVoice = (v) => {
+  let s = 0;
+  if (FEMALE_VOICE_RX.some(rx => rx.test(v.name))) s += 20;
+  if (/microsoft/i.test(v.name)) s += 8;
+  if (/natural/i.test(v.name)) s += 4;
+  if (/en[-_]?us/i.test(v.lang)) s += 3;
+  if (MALE_VOICE_RX.some(rx => rx.test(v.name))) s -= 100;
+  return s;
+};
+
+const pickLilyVoice = () => {
+  const voices = window.speechSynthesis?.getVoices?.() || [];
+  return voices.length ? [...voices].sort((a, b) => scoreVoice(b) - scoreVoice(a))[0] : null;
+};
+
+const cleanForSpeech = (text) =>
+  (text || '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]/gu, '')
+    .replace(/[*_#`~[\]()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 400);
+
+/* ── App Component ─────────────────────────── */
 function App() {
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'System initialized. JARVIS Core ready. Memory core connected.' }
+    { role: 'assistant', content: 'System online. LILY Core initialised. Memory core connected.' },
   ]);
   const [input, setInput] = useState('');
   const [expression, setExpression] = useState('neutral');
@@ -62,603 +58,311 @@ function App() {
   const [showRecalls, setShowRecalls] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [lastSearch, setLastSearch] = useState(null);
-  
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
   const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const lilyVoiceRef = useRef(null);
+  const inputRef = useRef(null);
 
-  // Auto-scroll to bottom of messages
+  /* auto-scroll */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Initialize speech recognition
+  /* voice preload */
   useEffect(() => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'en-US';
-
-      recognitionRef.current.onresult = (event) => {
-        const transcript = Array.from(event.results)
-          .map(result => result[0].transcript)
-          .join('');
-        
-        if (event.results[0].isFinal) {
-          setInput(transcript);
-          // Auto-send after voice input
-          setTimeout(() => {
-            handleSendMessage({ preventDefault: () => {} });
-          }, 500);
-        }
-      };
-
-      recognitionRef.current.onend = () => {
-        setIsListening(false);
-      };
-    }
+    const load = () => { const v = pickLilyVoice(); if (v) lilyVoiceRef.current = v; };
+    load();
+    window.speechSynthesis?.addEventListener?.('voiceschanged', load);
+    return () => window.speechSynthesis?.removeEventListener?.('voiceschanged', load);
   }, []);
 
-  const handleSendMessage = async (e, options = {}) => {
+  /* global mouse tracking for avatar eye follow */
+  useEffect(() => {
+    const onMove = (e) => {
+      const x = (e.clientX / window.innerWidth) * 2 - 1;
+      const y = -((e.clientY / window.innerHeight) * 2 - 1);
+      setMousePos({ x, y });
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => window.removeEventListener('mousemove', onMove);
+  }, []);
+
+  /* speech recognition setup */
+  useEffect(() => {
+    const SR = window.webkitSpeechRecognition || window.SpeechRecognition;
+    if (!SR) return;
+    const rec = new SR();
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+    rec.onresult = (e) => {
+      const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
+      if (e.results[0].isFinal) {
+        setInput(transcript);
+        setTimeout(() => handleSendMessage({ preventDefault: () => {} }), 400);
+      }
+    };
+    rec.onend = () => setIsListening(false);
+    recognitionRef.current = rec;
+  }, []);
+
+  /* ── send message ──────────────────────── */
+  const handleSendMessage = useCallback(async (e, options = {}) => {
     e?.preventDefault();
     if (!input.trim()) return;
 
     const userMessage = options.prefix ? `${options.prefix} ${input.trim()}` : input.trim();
     const forceSearch = Boolean(options.forceSearch);
     setInput('');
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
 
     try {
-      const response = await fetch('http://127.0.0.1:5000/api/chat', {
+      const res = await fetch('http://127.0.0.1:5000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           message: userMessage,
-          topics: topics,
-          recalls: recalls,
+          topics, recalls,
           memory_connected: isMemoryConnected,
           force_search: forceSearch,
         }),
       });
 
-      const data = await response.json();
-      const aiResponseText = data.text || '';
+      const data = await res.json();
+      const aiText = (data.text || '').trim() || "Sorry, I didn't catch that — try again?";
 
-      setMessages((prev) => [...prev, { role: 'assistant', content: aiResponseText }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: aiText }]);
 
       if (data.search_used) {
-        setLastSearch({
-          query: data.search_query,
-          mode: data.search_mode,
-          sources: data.sources || [],
-        });
+        setLastSearch({ query: data.search_query, mode: data.search_mode, sources: data.sources || [] });
       } else {
         setLastSearch(null);
       }
 
-      // Extract topics from response if any
-      if (data.topics) {
-        setTopics(prev => [...prev, ...data.topics]);
+      if (data.topics) setTopics(prev => [...new Set([...prev, ...data.topics])]);
+      if (data.recalls) setRecalls(prev => [...new Set([...prev, ...data.recalls])]);
+
+      setExpression(analyzeAIResponse(aiText));
+
+      /* browser TTS */
+      const speak = (text) => {
+        if (!('speechSynthesis' in window)) return false;
+        const clean = cleanForSpeech(text);
+        if (!clean) return false;
+        try {
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(clean);
+          u.lang = 'en-US';
+          u.rate = 1.05;
+          u.pitch = 1.35;
+          const voice = lilyVoiceRef.current || pickLilyVoice();
+          if (voice) { u.voice = voice; lilyVoiceRef.current = voice; }
+          u.onstart = () => setIsTalking(true);
+          u.onend = () => { setIsTalking(false); setExpression('neutral'); };
+          u.onerror = () => setIsTalking(false);
+          window.speechSynthesis.speak(u);
+          return true;
+        } catch { return false; }
+      };
+
+      if (!speak(aiText)) {
+        setIsTalking(true);
+        setTimeout(() => { setIsTalking(false); setExpression('neutral'); }, Math.max(2000, aiText.length * 60));
       }
 
-      // Extract recalls from response if any
-      if (data.recalls) {
-        setRecalls(prev => [...prev, ...data.recalls]);
-      }
-
-      const detectedMood = analyzeAIResponse(aiResponseText);
-      setExpression(detectedMood);
-
-      setIsTalking(true);
-      const speechDuration = Math.max(2000, aiResponseText.length * 65);
-      setTimeout(() => {
-        setIsTalking(false);
-        setExpression('neutral');
-      }, speechDuration);
-
-    } catch (error) {
-      console.error(error);
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: 'JARVIS: Memory core connection interrupted. Reconnecting...' }
-      ]);
-      setExpression('neutral');
+    } catch (err) {
+      console.error(err);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Connection to LILY core interrupted. Retrying...' }]);
+      setExpression('sad');
       setIsTalking(false);
     } finally {
       setLoading(false);
     }
+  }, [input, topics, recalls, isMemoryConnected]);
+
+  const toggleVoice = () => {
+    if (isListening) { recognitionRef.current?.stop(); setIsListening(false); }
+    else if (recognitionRef.current) { recognitionRef.current.start(); setIsListening(true); setInput(''); }
+    else alert('Speech recognition not supported.');
   };
 
-  const toggleVoiceInput = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    } else {
-      if (recognitionRef.current) {
-        recognitionRef.current.start();
-        setIsListening(true);
-        setInput('');
-      } else {
-        alert('Speech recognition is not supported in this browser.');
-      }
-    }
-  };
-
-  const toggleMemoryCore = () => {
-    setIsMemoryConnected(!isMemoryConnected);
-    setMessages(prev => [...prev, { 
-      role: 'assistant', 
-      content: isMemoryConnected ? 'Memory core disconnected. JARVIS operating in offline mode.' : 'Memory core connected. JARVIS is fully operational.' 
+  const toggleMemory = () => {
+    setIsMemoryConnected(prev => !prev);
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: isMemoryConnected ? 'Memory core disconnected. Operating in ephemeral mode.' : 'Memory core reconnected. Full cognitive suite online.',
     }]);
   };
 
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
       setIsScreenSharing(false);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Screen sharing terminated.' 
-      }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Screen sharing terminated.' }]);
       return;
     }
-
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false,
-      });
-      
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
       setIsScreenSharing(true);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Screen sharing activated. JARVIS is now analyzing your display.' 
-      }]);
-
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Screen sharing active. Analysing display...' }]);
       stream.getVideoTracks()[0].onended = () => {
         setIsScreenSharing(false);
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: 'Screen sharing session ended.' 
-        }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Screen sharing ended.' }]);
       };
-    } catch (error) {
-      console.error('Screen sharing error:', error);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Screen sharing failed. Please ensure you grant permission.' 
-      }]);
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Screen sharing permission denied.' }]);
     }
   };
 
   return (
-    <div style={{ 
-      display: 'flex', 
-      width: '100vw', 
-      height: '100vh', 
-      backgroundColor: '#0a0a0f', 
-      color: '#fff', 
-      fontFamily: 'monospace', 
-      padding: '20px', 
-      boxSizing: 'border-box',
-      background: 'radial-gradient(ellipse at center, #141420 0%, #0a0a0f 100%)'
-    }}>
-      
-      {/* LEFT WINDOW: 3D AVATAR CANVAS */}
-      <div style={{ 
-        width: '40%', 
-        height: '100%', 
-        position: 'relative', 
-        backgroundColor: '#0d0d14', 
-        borderRadius: '16px', 
-        marginRight: '20px', 
-        overflow: 'hidden',
-        border: '1px solid #1a1a2e',
-        boxShadow: '0 0 60px rgba(100, 50, 255, 0.05)'
-      }}>
-        {/* JARVIS Logo Overlay */}
-        <div style={{
-          position: 'absolute',
-          top: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 10,
-          textAlign: 'center',
-          pointerEvents: 'none'
-        }}>
-          <h1 style={{
-            color: '#00e676',
-            fontFamily: 'monospace',
-            fontSize: '28px',
-            letterSpacing: '8px',
-            fontWeight: 300,
-            textShadow: '0 0 40px rgba(0, 230, 118, 0.2)',
-            margin: 0
-          }}>JARVIS</h1>
-          <div style={{
-            fontSize: '10px',
-            color: '#4a4a6a',
-            letterSpacing: '4px',
-            marginTop: '2px',
-            fontFamily: 'monospace'
-          }}>✦ MEMORY CORE v2.0 ✦</div>
-        </div>
+    <div className="lily-app">
 
-        {/* Status indicators */}
-        <div style={{
-          position: 'absolute',
-          bottom: '20px',
-          left: '20px',
-          zIndex: 10,
-          display: 'flex',
-          gap: '12px',
-          alignItems: 'center'
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            fontSize: '10px',
-            color: isMemoryConnected ? '#4ade80' : '#ef4444',
-            fontFamily: 'monospace'
-          }}>
-            <span style={{
-              display: 'inline-block',
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              backgroundColor: isMemoryConnected ? '#4ade80' : '#ef4444',
-              animation: isMemoryConnected ? 'pulse 2s infinite' : 'none'
-            }}></span>
-            {isMemoryConnected ? 'MEMORY CORE ONLINE' : 'MEMORY CORE OFFLINE'}
-          </div>
-          {isScreenSharing && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '10px',
-              color: '#f59e0b',
-              fontFamily: 'monospace'
-            }}>
-              <span style={{
-                display: 'inline-block',
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                backgroundColor: '#f59e0b',
-                animation: 'pulse 1s infinite'
-              }}></span>
-              SCREEN SHARING
-            </div>
-          )}
+      {/* ── AVATAR VIEWPORT ────────────────── */}
+      <div className="avatar-viewport">
+        <div className="avatar-glow" />
+
+        <div className="avatar-brand">
+          <h1>LILY</h1>
+          <div className="avatar-brand-sub">COGNITIVE AI CORE v2.0</div>
         </div>
 
         <Canvas camera={{ position: [0, 0, 4.5], fov: 40 }}>
           <ambientLight intensity={1.2} />
-          <directionalLight position={[2, 2, 2]} intensity={1.2} />
-          <spotLight position={[-2, 4, 2]} intensity={0.8} color="#00e676" />
-          <Avatar expression={expression} isTalking={isTalking} />
-          <OrbitControls enableZoom={true} target={[0, 0, 0]} />
+          <directionalLight position={[2, 2, 2]} intensity={1.1} />
+          <spotLight position={[-2, 4, 2]} intensity={0.6} color="#a855f7" />
+          <spotLight position={[3, 1, 3]} intensity={0.3} color="#22d3ee" />
+          <Avatar expression={expression} isTalking={isTalking} mousePos={mousePos} />
+          <OrbitControls enableZoom enablePan={false} target={[0, 0, 0]} />
         </Canvas>
 
-        {/* CSS Pulse Animation */}
-        <style>{`
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
-          }
-        `}</style>
-      </div>
-
-      {/* RIGHT WINDOW: INTERFACE */}
-      <div style={{ 
-        width: '60%', 
-        padding: '20px', 
-        display: 'flex', 
-        flexDirection: 'column', 
-        backgroundColor: '#0d0d14', 
-        borderRadius: '16px', 
-        boxSizing: 'border-box',
-        border: '1px solid #1a1a2e',
-        boxShadow: '0 0 60px rgba(100, 50, 255, 0.05)'
-      }}>
-        {/* Header with controls */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          borderBottom: '1px solid #1a1a2e',
-          paddingBottom: '12px',
-          marginBottom: '15px'
-        }}>
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-            <h2 style={{ 
-              color: '#00e676', 
-              fontFamily: 'monospace', 
-              fontSize: '14px', 
-              letterSpacing: '3px',
-              fontWeight: 300,
-              margin: 0
-            }}>CONSOLE</h2>
-            <span style={{ fontSize: '10px', color: '#4a4a6a', fontFamily: 'monospace' }}>
-              {new Date().toLocaleTimeString()}
-            </span>
+        <div className="avatar-status-bar">
+          <div className={`status-indicator ${isMemoryConnected ? 'status-indicator--online' : 'status-indicator--offline'}`}>
+            <span className={`status-dot ${isMemoryConnected ? 'status-dot--online' : 'status-dot--offline'}`} />
+            {isMemoryConnected ? 'CORE ONLINE' : 'CORE OFFLINE'}
           </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={toggleMemoryCore}
-              style={{
-                padding: '6px 12px',
-                backgroundColor: isMemoryConnected ? 'rgba(74, 222, 128, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                border: `1px solid ${isMemoryConnected ? 'rgba(74, 222, 128, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                color: isMemoryConnected ? '#4ade80' : '#ef4444',
-                borderRadius: '4px',
-                fontSize: '10px',
-                fontFamily: 'monospace',
-                cursor: 'pointer',
-                transition: 'all 0.3s'
-              }}
-            >
-              {isMemoryConnected ? '● MEMORY CORE' : '○ MEMORY CORE'}
-            </button>
+          {isScreenSharing && (
+            <div className="status-indicator status-indicator--sharing">
+              <span className="status-dot status-dot--sharing" />
+              SCREEN SHARING
+            </div>
+          )}
+          <div className="avatar-expression-tag">
+            {isTalking ? '● SPEAKING' : expression !== 'neutral' ? `● ${expression.toUpperCase()}` : '○ IDLE'}
           </div>
         </div>
+      </div>
 
-        {/* Topics, Recalls & Share Screen Bar */}
-        <div style={{
-          display: 'flex',
-          gap: '10px',
-          marginBottom: '12px',
-          flexWrap: 'wrap'
-        }}>
+      {/* ── CONTROL PANEL ──────────────────── */}
+      <div className="control-panel">
+        <div className="panel-header">
+          <span className="panel-title">CONSOLE</span>
+          <span className="panel-time">{new Date().toLocaleTimeString()}</span>
+        </div>
+
+        {/* Toolbar */}
+        <div className="toolbar">
           <button
+            className={`toolbar-btn ${isMemoryConnected ? 'toolbar-btn--memory-on' : 'toolbar-btn--memory-off'}`}
+            onClick={toggleMemory}
+          >
+            {isMemoryConnected ? '●' : '○'} MEMORY
+          </button>
+          <button
+            className={`toolbar-btn ${showTopics ? 'toolbar-btn--active' : ''}`}
             onClick={() => setShowTopics(!showTopics)}
-            style={{
-              padding: '4px 14px',
-              backgroundColor: showTopics ? 'rgba(0, 230, 118, 0.15)' : 'transparent',
-              border: '1px solid rgba(0, 230, 118, 0.2)',
-              color: '#00e676',
-              borderRadius: '20px',
-              fontSize: '10px',
-              fontFamily: 'monospace',
-              cursor: 'pointer',
-              transition: 'all 0.3s'
-            }}
           >
             📋 TOPICS {topics.length > 0 && `(${topics.length})`}
           </button>
           <button
+            className={`toolbar-btn ${showRecalls ? 'toolbar-btn--active' : ''}`}
             onClick={() => setShowRecalls(!showRecalls)}
-            style={{
-              padding: '4px 14px',
-              backgroundColor: showRecalls ? 'rgba(0, 230, 118, 0.15)' : 'transparent',
-              border: '1px solid rgba(0, 230, 118, 0.2)',
-              color: '#00e676',
-              borderRadius: '20px',
-              fontSize: '10px',
-              fontFamily: 'monospace',
-              cursor: 'pointer',
-              transition: 'all 0.3s'
-            }}
           >
             🔄 RECALLS {recalls.length > 0 && `(${recalls.length})`}
           </button>
           <button
+            className={`toolbar-btn ${isScreenSharing ? 'toolbar-btn--active' : ''}`}
             onClick={toggleScreenShare}
-            style={{
-              padding: '4px 14px',
-              backgroundColor: isScreenSharing ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
-              border: '1px solid rgba(245, 158, 11, 0.2)',
-              color: isScreenSharing ? '#f59e0b' : '#00e676',
-              borderRadius: '20px',
-              fontSize: '10px',
-              fontFamily: 'monospace',
-              cursor: 'pointer',
-              transition: 'all 0.3s'
-            }}
           >
-            {isScreenSharing ? '🟡 SHARING' : '🖥️ SHARE SCREEN'}
+            {isScreenSharing ? '🟡 SHARING' : '🖥️ SCREEN'}
           </button>
           <button
+            className="toolbar-btn toolbar-btn--search"
             onClick={(e) => handleSendMessage(e, { prefix: 'smart search', forceSearch: true })}
             disabled={!input.trim() || loading}
-            style={{
-              padding: '4px 14px',
-              backgroundColor: 'rgba(56, 189, 248, 0.12)',
-              border: '1px solid rgba(56, 189, 248, 0.25)',
-              color: '#38bdf8',
-              borderRadius: '20px',
-              fontSize: '10px',
-              fontFamily: 'monospace',
-              cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
-              opacity: input.trim() && !loading ? 1 : 0.5,
-              transition: 'all 0.3s'
-            }}
           >
-            🔍 SMART SEARCH
+            🔍 SEARCH
           </button>
         </div>
 
+        {/* Search results banner */}
         {lastSearch && (
-          <div style={{
-            marginBottom: '12px',
-            padding: '10px 14px',
-            backgroundColor: 'rgba(56, 189, 248, 0.05)',
-            borderRadius: '8px',
-            border: '1px solid rgba(56, 189, 248, 0.12)',
-          }}>
-            <div style={{ fontSize: '9px', color: '#38bdf8', marginBottom: '6px', letterSpacing: '2px' }}>
-              ▸ SMART SEARCH ({lastSearch.mode || 'web'}) — {lastSearch.query}
+          <div className="search-banner">
+            <div className="search-banner-title">
+              ▸ SEARCH ({lastSearch.mode || 'web'}) — {lastSearch.query}
             </div>
-            {(lastSearch.sources || []).slice(0, 3).map((source, i) => (
-              <div key={i} style={{ fontSize: '11px', color: '#94a3b8', padding: '2px 0' }}>
-                ↳ {source.title}
-              </div>
+            {(lastSearch.sources || []).slice(0, 3).map((s, i) => (
+              <div key={i} className="search-source">↳ {s.title}</div>
             ))}
           </div>
         )}
 
-        {/* Topics Panel */}
+        {/* Topics panel */}
         {showTopics && topics.length > 0 && (
-          <div style={{
-            marginBottom: '12px',
-            padding: '12px 14px',
-            backgroundColor: 'rgba(0, 230, 118, 0.03)',
-            borderRadius: '8px',
-            border: '1px solid rgba(0, 230, 118, 0.08)',
-            maxHeight: '100px',
-            overflowY: 'auto'
-          }}>
-            <div style={{ fontSize: '9px', color: '#4a4a6a', marginBottom: '6px', letterSpacing: '2px' }}>▸ TOPICS</div>
-            {topics.map((topic, i) => (
-              <span key={i} style={{
-                display: 'inline-block',
-                padding: '2px 12px',
-                margin: '2px 4px 2px 0',
-                backgroundColor: 'rgba(0, 230, 118, 0.1)',
-                borderRadius: '12px',
-                fontSize: '11px',
-                color: '#4ade80'
-              }}>
-                #{topic}
-              </span>
-            ))}
+          <div className="info-panel">
+            <div className="info-panel-label">▸ TOPICS</div>
+            {topics.map((t, i) => <span key={i} className="topic-tag">#{t}</span>)}
           </div>
         )}
 
-        {/* Recalls Panel */}
+        {/* Recalls panel */}
         {showRecalls && recalls.length > 0 && (
-          <div style={{
-            marginBottom: '12px',
-            padding: '12px 14px',
-            backgroundColor: 'rgba(0, 230, 118, 0.03)',
-            borderRadius: '8px',
-            border: '1px solid rgba(0, 230, 118, 0.08)',
-            maxHeight: '100px',
-            overflowY: 'auto'
-          }}>
-            <div style={{ fontSize: '9px', color: '#4a4a6a', marginBottom: '6px', letterSpacing: '2px' }}>▸ RECALLS</div>
-            {recalls.map((recall, i) => (
-              <div key={i} style={{
-                fontSize: '12px',
-                color: '#a0a0c0',
-                padding: '2px 0',
-                borderBottom: i < recalls.length - 1 ? '1px solid rgba(0, 230, 118, 0.05)' : 'none'
-              }}>
-                ↳ {recall}
-              </div>
-            ))}
+          <div className="info-panel">
+            <div className="info-panel-label">▸ RECALLS</div>
+            {recalls.map((r, i) => <div key={i} className="recall-item">↳ {r}</div>)}
           </div>
         )}
 
-        {/* Messages */}
-        <div style={{ 
-          flex: 1, 
-          overflowY: 'auto', 
-          paddingRight: '6px',
-          marginBottom: '12px',
-          backgroundColor: 'rgba(0,0,0,0.2)',
-          borderRadius: '8px',
-          padding: '12px 14px'
-        }}>
+        {/* Chat messages */}
+        <div className="chat-container">
           {messages.map((msg, i) => (
-            <div key={i} style={{ 
-              marginBottom: '10px', 
-              lineHeight: '1.6',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              backgroundColor: msg.role === 'user' ? 'rgba(59, 130, 246, 0.05)' : 'rgba(0, 230, 118, 0.04)',
-              borderLeft: `3px solid ${msg.role === 'user' ? '#3b82f6' : '#00e676'}`
-            }}>
-              <strong style={{ 
-                color: msg.role === 'user' ? '#60a5fa' : '#4ade80',
-                fontSize: '11px',
-                fontFamily: 'monospace'
-              }}>
-                {msg.role === 'user' ? '▸ USER' : '◈ JARVIS'}
-              </strong>
-              <span style={{ 
-                display: 'block',
-                marginTop: '2px',
-                fontSize: '14px',
-                color: '#d0d0e0'
-              }}>{msg.content}</span>
+            <div key={i} className={`chat-msg ${msg.role === 'user' ? 'chat-msg--user' : 'chat-msg--lily'}`}>
+              <div className={`chat-role ${msg.role === 'user' ? 'chat-role--user' : 'chat-role--lily'}`}>
+                {msg.role === 'user' ? '▸ YOU' : '◈ LILY'}
+              </div>
+              <div className="chat-text">{msg.content}</div>
             </div>
           ))}
           {loading && (
-            <div style={{ 
-              color: '#4a4a6a', 
-              fontStyle: 'italic', 
-              fontSize: '12px',
-              padding: '8px 12px',
-              fontFamily: 'monospace'
-            }}>
-              ⚡ Processing memory core...
+            <div className="chat-thinking">
+              <div className="thinking-dots">
+                <span /><span /><span />
+              </div>
+              Lily is thinking...
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Area */}
-        <form onSubmit={handleSendMessage} style={{ 
-          display: 'flex', 
-          gap: '10px',
-          borderTop: '1px solid #1a1a2e',
-          paddingTop: '12px'
-        }}>
+        {/* Input */}
+        <form className="input-area" onSubmit={handleSendMessage}>
           <input
+            ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={isListening ? "🎤 Listening..." : "Ask JARVIS — news, trends, or anything..."}
-            style={{ 
-              flex: 1, 
-              padding: '12px 16px', 
-              backgroundColor: '#0a0a12', 
-              border: isListening ? '1px solid #00e676' : '1px solid #1a1a2e',
-              color: '#fff', 
-              borderRadius: '8px', 
-              fontFamily: 'monospace', 
-              outline: 'none',
-              fontSize: '13px',
-              transition: 'all 0.3s'
-            }}
+            placeholder={isListening ? '🎤  Listening...' : 'Ask LILY anything...'}
+            className={`input-field ${isListening ? 'input-field--listening' : ''}`}
           />
           <button
             type="button"
-            onClick={toggleVoiceInput}
-            style={{
-              padding: '12px 16px',
-              backgroundColor: isListening ? 'rgba(0, 230, 118, 0.2)' : 'rgba(0, 230, 118, 0.05)',
-              border: `1px solid ${isListening ? '#00e676' : 'rgba(0, 230, 118, 0.15)'}`,
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '16px',
-              transition: 'all 0.3s'
-            }}
+            onClick={toggleVoice}
+            className={`btn-icon ${isListening ? 'btn-icon--listening' : ''}`}
           >
             {isListening ? '🔴' : '🎤'}
           </button>
-          <button
-            type="submit"
-            style={{
-              padding: '12px 28px',
-              backgroundColor: '#00e676',
-              color: '#000',
-              border: 'none',
-              borderRadius: '8px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              fontFamily: 'monospace',
-              fontSize: '12px',
-              letterSpacing: '1px',
-              transition: 'all 0.3s'
-            }}
-          >
-            SEND
-          </button>
+          <button type="submit" className="btn-send">SEND</button>
         </form>
       </div>
     </div>

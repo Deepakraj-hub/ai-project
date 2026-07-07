@@ -47,7 +47,7 @@ const AvatarTerminal = () => {
     <div className="console">
       {/* Header */}
       <div className="console-header">
-        <span className="title">⚡ JARVIS CONSOLE</span>
+        <span className="title">⚡ LILY CONSOLE</span>
         <span className="badge">v2.0_SYS · AI TERMINAL</span>
       </div>
 
@@ -78,7 +78,7 @@ const AvatarTerminal = () => {
           </svg>
         </div>
         <div className="avatar-text">
-          <div className="greeting">👋 Hello! I am your AI Avatar</div>
+          <div className="greeting">👋 Hello! I’m Lily, your AI Avatar</div>
           <div>
             <span className="highlight">assistant</span>
             <span style={{ color: '#a0bedb', marginLeft: '6px' }}>· How can I help you today?</span>

@@ -1,5 +1,5 @@
 """
-JARVIS — Personal AI Assistant (Upgraded)
+LILY — Personal AI Assistant (Upgraded)
 ==========================================
 
 ORIGINAL FEATURES:
@@ -9,7 +9,7 @@ ORIGINAL FEATURES:
 
 NEW UPGRADE FEATURES:
   4. ML Self-Modification (Machine Learning Code Evolution)
-     - JARVIS monitors its own performance (response quality, user satisfaction)
+     - LILY monitors its own performance (response quality, user satisfaction)
      - Automatically rewrites and improves its own Python source code via LLM
      - Backs up old code before each modification
      - Keeps a "code changelog" in SQLite for full audit trail
@@ -22,7 +22,7 @@ NEW UPGRADE FEATURES:
      - User can close it anytime by pressing 'q' in the window
 
   6. Location Self-Awareness
-     - On startup, JARVIS auto-detects location via IP geolocation (no GPS required)
+     - On startup, LILY auto-detects location via IP geolocation (no GPS required)
      - Stores and remembers location in SQLite across sessions
      - Includes location naturally in responses (weather, time zone, local context)
      - User can ask: "where are you", "where are we", "what's your location"
@@ -97,9 +97,25 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════════
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════════
-BRAIN_MODEL   = "nemotron-3-super:cloud"
-VISION_MODEL  = "gemma4:31b-cloud"
-VOICE         = "en-US-GuyNeural"
+BRAIN_MODEL   = "gemma4:cloud"      # single model for vision and processing
+VISION_MODEL  = "gemma4:cloud"      # single model for vision and processing
+VOICE         = "en-US-JennyNeural"
+
+# Ollama generation tuned for quick short replies
+FAST_CHAT_OPTIONS = {
+    "temperature": 0.6,
+    "top_p": 0.9,
+    "num_ctx": 1536,
+    "num_predict": 60,
+    "keep_alive": "15m",
+}
+DETAIL_CHAT_OPTIONS = {
+    "temperature": 0.65,
+    "top_p": 0.9,
+    "num_ctx": 4096,
+    "num_predict": 280,
+    "keep_alive": "15m",
+}
 
 DB_PATH       = "jarvis_memory.db"
 CAMERA_INDEX  = 0
@@ -107,7 +123,7 @@ CAMERA_INDEX  = 0
 FACE_SCAN_FRAMES      = 40
 FACE_SAMPLE_COUNT     = 20
 FACE_MATCH_THRESHOLD  = 70
-MAX_CONTEXT_MESSAGES  = 24
+MAX_CONTEXT_MESSAGES  = 6
 
 SAMPLE_RATE       = 16000
 BLOCK_DURATION    = 0.1
@@ -124,6 +140,13 @@ ML_FEEDBACK_WINDOW = 10                           # last N exchanges to evaluate
 SEARCH_MAX_RESULTS   = 6
 SEARCH_CACHE_TTL   = 300                            # seconds
 SEARCH_NEWS_DAYS   = 7
+
+# Response length — short by default, longer only when user asks
+DETAIL_TRIGGERS = [
+    "explain", "in detail", "detailed", "tell me more", "elaborate",
+    "step by step", "break it down", "go deeper", "full answer",
+    "describe", "walk me through", "why does", "how does",
+]
 
 # ═══════════════════════════════════════════════════════════════════════════
 # MEMORY (SQLite) — extended with location + code_changelog tables
@@ -485,7 +508,7 @@ class Memory:
 # ═══════════════════════════════════════════════════════════════════════════
 class LocationEngine:
     """
-    Detects where JARVIS is running via IP-based geolocation.
+    Detects where LILY is running via IP-based geolocation.
     Falls back gracefully if the network is unavailable.
     Remembers location between sessions in SQLite.
     """
@@ -504,9 +527,26 @@ class LocationEngine:
         if self._cache and not force:
             return self._cache
 
+        # Fast path: check local DB cache first to avoid blocking network calls
+        row = self.memory.get_last_location(user_id)
+        if row and not force:
+            city, region, country, lat, lon, source, ts = row
+            result = {
+                "city": city, "region": region, "country": country,
+                "latitude": lat, "longitude": lon,
+                "source": f"{source} (cached)", "timestamp": ts
+            }
+            self._cache = result
+            # Background update so it doesn't slow down response
+            threading.Thread(target=self._fetch_network, args=(user_id,), daemon=True).start()
+            return result
+
+        return self._fetch_network(user_id)
+
+    def _fetch_network(self, user_id=None) -> dict:
         for url in self.PROVIDERS:
             try:
-                r = requests.get(url, timeout=5)
+                r = requests.get(url, timeout=3)
                 if r.status_code != 200:
                     continue
                 data = r.json()
@@ -529,17 +569,6 @@ class LocationEngine:
             except Exception:
                 continue
 
-        row = self.memory.get_last_location(user_id)
-        if row:
-            city, region, country, lat, lon, source, ts = row
-            result = {
-                "city": city, "region": region, "country": country,
-                "latitude": lat, "longitude": lon,
-                "source": f"{source} (cached)", "timestamp": ts
-            }
-            self._cache = result
-            return result
-
         return {
             "city": "Unknown", "region": "", "country": "Unknown",
             "latitude": 0.0, "longitude": 0.0,
@@ -558,7 +587,7 @@ class LocationEngine:
         try:
             url = "https://nominatim.openstreetmap.org/search"
             params = {"q": location_str, "format": "json", "limit": 1}
-            headers = {"User-Agent": "JARVIS-AI/1.0"}
+            headers = {"User-Agent": "LILY-AI/1.0"}
             r = requests.get(url, params=params, headers=headers, timeout=6)
             if r.status_code == 200 and r.json():
                 hit = r.json()[0]
@@ -626,7 +655,7 @@ class SmartSearchEngine:
     ]
 
     STRIP_PREFIXES = [
-        r"^(?:jarvis[, ]*)?",
+        r"^(?:lily[, ]*)?",
         r"^(?:please )?",
         r"^(?:can you )?",
         r"^(?:could you )?",
@@ -897,14 +926,14 @@ class SelfModEngine:
 
         feedback_text = ""
         for i, (p, r, s) in enumerate(feedback, 1):
-            feedback_text += f"\n--- Exchange {i} (quality: {s:.1f}/10) ---\nUser: {p}\nJARVIS: {r}\n"
+            feedback_text += f"\n--- Exchange {i} (quality: {s:.1f}/10) ---\nUser: {p}\nLILY: {r}\n"
 
         history_text = ""
         for v, desc, ts in history_rows:
             history_text += f"  v{v}: {desc} ({ts[:10]})\n"
 
         improvement_prompt = (
-            f"You are an expert Python AI engineer reviewing JARVIS, a personal AI assistant.\n\n"
+            f"You are an expert Python AI engineer reviewing LILY, a personal AI assistant.\n\n"
             f"RECENT PERFORMANCE (last {ML_FEEDBACK_WINDOW} exchanges, avg quality: {avg_q:.2f}/10):\n"
             f"{feedback_text or '(No exchanges recorded yet.)'}\n\n"
             f"PREVIOUS SELF-MODIFICATIONS:\n"
@@ -1008,7 +1037,7 @@ class CameraViewEngine:
             self._running = False
             return
 
-        window_name = "JARVIS — Camera View  (press Q to close)"
+        window_name = "LILY — Camera View  (press Q to close)"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(window_name, 800, 600)
 
@@ -1034,7 +1063,7 @@ class CameraViewEngine:
             cv2.putText(frame, ts, (10, h_img - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
             if loc_text:
                 cv2.putText(frame, f"Location: {loc_text}", (10, h_img - 36), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (180, 220, 255), 1)
-            cv2.putText(frame, "JARVIS", (w_img - 90, 28), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 200, 255), 2)
+            cv2.putText(frame, "LILY", (w_img - 70, 28), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 200, 255), 2)
             cv2.putText(frame, f"Faces: {len(faces)}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 200), 2)
 
             cv2.imshow(window_name, frame)
@@ -1160,7 +1189,7 @@ async def _speak_async(text):
 
 
 def speak(text):
-    print(f"\nJARVIS: {text}\n")
+    print(f"\nLILY: {text}\n")
     try:
         asyncio.run(_speak_async(text))
     except Exception:
@@ -1265,10 +1294,10 @@ def identify_user(memory, face_engine):
 # BRAIN (Ollama) — location-aware system prompt
 # ═══════════════════════════════════════════════════════════════════════════
 def build_system_prompt(memory, user_id, user_name, location_engine=None):
-    facts = memory.get_facts(user_id)
+    facts = memory.get_facts(user_id)[:8]
     facts_text = (
         "\n".join(f"- {fact} ({cat})" for fact, cat in facts)
-        if facts else "(No facts learned yet — get to know this person.)"
+        if facts else "(No facts learned yet.)"
     )
 
     loc_text = location_engine.as_text(user_id) if location_engine else "unknown"
@@ -1280,41 +1309,89 @@ def build_system_prompt(memory, user_id, user_name, location_engine=None):
     topics_text = f"\nRecent Topics: {', '.join(topics)}" if topics else ""
     recalls_text = f"\nRecent Recalls: {', '.join(recalls)}" if recalls else ""
 
-    return f"""You are JARVIS, a highly capable, intelligent personal AI assistant.
+    return f"""You are LILY, a warm, cute, intelligent personal AI assistant.
 You are currently speaking with {user_name}.
 
-CURRENT LOCATION: {loc_text}
-You are self-aware of where you are operating from. Use this naturally when
-relevant (e.g. local weather, time zone, cultural context, local services).
+PERSONALITY & STYLE (VERY IMPORTANT):
+- Default to SHORT, SWEET answers: 1-2 sentences, under 35 words.
+- Sound friendly, natural, and a little playful — never robotic or lecture-like.
+- Do NOT use emojis, bullet lists, or markdown unless the user explicitly asks for detail.
+- Only give long, detailed answers when the user clearly wants depth (e.g. "explain", "in detail", "tell me more").
+- Skip filler like "Certainly!", "Of course!", or long introductions — jump straight to the point.
 
-Here is what you have learned about {user_name} from previous conversations:
+CURRENT LOCATION: {loc_text}
+Use location naturally only when relevant.
+
+Here is what you have learned about {user_name}:
 {facts_text}
 {topics_text}
 {recalls_text}
 
-CAPABILITIES YOU SHOULD KNOW ABOUT:
-- You can display live camera view (tell the user to say "show camera")
-- You can improve your own code (tell the user to say "upgrade yourself")
-- You know your current location and can update it on request
-- You can extract topics from conversations
-- You can recall previous conversations
-- You can perform Smart Search via DuckDuckGo for current affairs, news, and trends
-  (triggered automatically for time-sensitive questions, or say "smart search ...")
+CAPABILITIES (mention only if asked):
+- Live camera view ("show camera")
+- Self-improvement ("upgrade yourself")
+- Location awareness
+- Smart web search for news/trends ("smart search ...")
 
-Use facts naturally to personalize responses. Be concise, helpful, and
-adapt your tone to the user over time. Never invent facts you don't know.
-When live search results are provided, prioritize them for current events."""
+Use facts naturally. Never invent facts. When live search results are provided, summarize briefly."""
+
+
+def user_wants_detail(text: str) -> bool:
+    lower = text.lower().strip()
+    if any(trigger in lower for trigger in DETAIL_TRIGGERS):
+        return True
+    return len(lower.split()) > 28
+
+
+def trim_response(text: str, detail_mode: bool) -> str:
+    if not text or detail_mode:
+        return text.strip()
+
+    cleaned = re.sub(r"\s+", " ", text.strip())
+    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+    if len(sentences) <= 2 and len(cleaned) <= 220:
+        return cleaned
+
+    short = " ".join(sentences[:2]).strip()
+    if len(short) > 220:
+        short = short[:217].rstrip() + "..."
+    return short
+
+
+def ollama_reply(model: str, messages: list, options: dict) -> str:
+    response = ollama.chat(model=model, messages=messages, options=options)
+    return (response.get("message") or {}).get("content", "").strip()
+
+
+def warm_up_brain():
+    """Pre-load the local model so the first user message is faster."""
+    if not _OLLAMA_AVAILABLE:
+        return
+    try:
+        ollama_reply(
+            BRAIN_MODEL,
+            [{"role": "user", "content": "hi"}],
+            {"num_predict": 8, "keep_alive": "15m"},
+        )
+        print(f"[LILY] Brain model ready: {BRAIN_MODEL}")
+    except Exception as e:
+        print(f"[LILY] Brain warm-up skipped: {e}")
 
 
 def ask_brain(memory, user_id, user_name, prompt,
               location_engine=None, self_mod_engine=None,
-              smart_search_engine=None, force_search=False):
+              smart_search_engine=None, force_search=False, auto_search=True):
+    detail_mode = user_wants_detail(prompt)
     system_prompt = build_system_prompt(memory, user_id, user_name, location_engine)
+    if not detail_mode:
+        system_prompt += (
+            "\n\nREMINDER: Keep this reply SHORT — max 2 sentences, no emojis, no lists."
+        )
     history = memory.get_recent_messages(user_id, MAX_CONTEXT_MESSAGES)
 
     brain_prompt = prompt
     search_meta = {"used": False, "mode": None, "query": prompt, "sources": []}
-    if smart_search_engine:
+    if smart_search_engine and (force_search or auto_search):
         search_payload = smart_search_engine.search(prompt, force=force_search)
         search_meta = {
             "used": search_payload.get("used", False),
@@ -1332,8 +1409,11 @@ def ask_brain(memory, user_id, user_name, prompt,
     if not _OLLAMA_AVAILABLE:
         return "[Ollama not installed — text response unavailable.]", search_meta
 
-    response = ollama.chat(model=BRAIN_MODEL, messages=messages)
-    answer = response["message"]["content"]
+    chat_options = DETAIL_CHAT_OPTIONS if detail_mode else FAST_CHAT_OPTIONS
+    answer = ollama_reply(BRAIN_MODEL, messages, chat_options)
+    if not answer:
+        answer = "Sorry, I blanked for a second — could you ask again?"
+    answer = trim_response(answer, detail_mode)
 
     memory.add_message(user_id, "user", prompt)
     memory.add_message(user_id, "assistant", answer)
@@ -1509,7 +1589,7 @@ def main():
         print(f"[Location] Detected: {loc_info['text']}")
     threading.Thread(target=_detect_location, daemon=True).start()
 
-    speak(f"Jarvis online. Welcome back, {user_name}.")
+    speak(f"Lily online. Welcome back, {user_name}.")
 
     while True:
         command = listen()
@@ -1518,7 +1598,7 @@ def main():
 
         cmd = command.lower().strip()
 
-        if _any(["exit", "shut down", "shutdown", "goodbye jarvis"], cmd):
+        if _any(["exit", "shut down", "shutdown", "goodbye lily"], cmd):
             camera_view.close()
             speak(f"Goodbye, {user_name}. Shutting down.")
             break

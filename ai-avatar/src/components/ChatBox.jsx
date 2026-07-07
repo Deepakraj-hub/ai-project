@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 export default function ChatBox({ setExpression, setIsTalking }) {
   const [text, setText] = useState('');
   const [messages, setMessages] = useState([
-    { id: 1, sender: 'jarvis', text: "Hello! I am your AI Avatar assistant. How can I help you today?" }
+    { id: 1, sender: 'lily', text: "Hello! I’m Lily, your AI avatar assistant. How can I help you today?" }
   ]);
 
   const handleSend = () => {
@@ -19,7 +19,7 @@ export default function ChatBox({ setExpression, setIsTalking }) {
     setExpression('happy');
 
     setTimeout(() => {
-      const jarvisMsg = { id: Date.now() + 1, sender: 'jarvis', text: "Processing your text context request..." };
+      const jarvisMsg = { id: Date.now() + 1, sender: 'lily', text: "Processing your request..." };
       setMessages(prev => [...prev, jarvisMsg]);
       
       setTimeout(() => {

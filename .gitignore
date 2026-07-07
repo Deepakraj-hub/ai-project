@@ -21,3 +21,4 @@ jarvis_code_backups/
 # OS files
 .DS_Store
 Thumbs.db
+.venv/

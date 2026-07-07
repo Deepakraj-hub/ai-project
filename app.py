@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from jarvis import Memory, LocationEngine, SelfModEngine, SmartSearchEngine, ask_brain, speak
+from jarvis import Memory, LocationEngine, SelfModEngine, SmartSearchEngine, ask_brain, warm_up_brain
 import re
 import threading
 
@@ -11,6 +11,9 @@ memory = Memory()
 location_engine = LocationEngine(memory)
 self_mod_engine = SelfModEngine(memory)
 smart_search_engine = SmartSearchEngine()
+
+# Pre-load local LLM in background so first chat feels faster
+threading.Thread(target=warm_up_brain, daemon=True).start()
 
 # Store topics and recalls in memory (could be moved to SQLite)
 topics_store = []
@@ -159,10 +162,8 @@ def chat():
             memory, user_id, user_name, user_message,
             location_engine, self_mod_engine, smart_search_engine,
             force_search=force_search,
+            auto_search=True,  # web UI: automatically search for current affairs and time-sensitive queries
         )
-        
-        # Play the voice response asynchronously in the background
-        threading.Thread(target=speak, args=(ai_text,), daemon=True).start()
         
         # Detect expression from the AI response
         expression = detect_expression(ai_text)
@@ -201,7 +202,7 @@ def chat():
     except Exception as e:
         print("Backend execution crash details:", e)
         return jsonify({
-            "text": f"JARVIS: Memory core error. Details: {str(e)}",
+            "text": f"LILY: Memory core error. Details: {str(e)}",
             "expression": "neutral",
             "topics": [],
             "recalls": [],
