@@ -61,6 +61,7 @@ function App() {
   const [showTopics, setShowTopics] = useState(false);
   const [showRecalls, setShowRecalls] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [lastSearch, setLastSearch] = useState(null);
   
   const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -99,11 +100,12 @@ function App() {
     }
   }, []);
 
-  const handleSendMessage = async (e) => {
+  const handleSendMessage = async (e, options = {}) => {
     e?.preventDefault();
     if (!input.trim()) return;
 
-    const userMessage = input;
+    const userMessage = options.prefix ? `${options.prefix} ${input.trim()}` : input.trim();
+    const forceSearch = Boolean(options.forceSearch);
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
@@ -116,7 +118,8 @@ function App() {
           message: userMessage,
           topics: topics,
           recalls: recalls,
-          memory_connected: isMemoryConnected
+          memory_connected: isMemoryConnected,
+          force_search: forceSearch,
         }),
       });
 
@@ -124,6 +127,16 @@ function App() {
       const aiResponseText = data.text || '';
 
       setMessages((prev) => [...prev, { role: 'assistant', content: aiResponseText }]);
+
+      if (data.search_used) {
+        setLastSearch({
+          query: data.search_query,
+          mode: data.search_mode,
+          sources: data.sources || [],
+        });
+      } else {
+        setLastSearch(null);
+      }
 
       // Extract topics from response if any
       if (data.topics) {
@@ -448,7 +461,44 @@ function App() {
           >
             {isScreenSharing ? '🟡 SHARING' : '🖥️ SHARE SCREEN'}
           </button>
+          <button
+            onClick={(e) => handleSendMessage(e, { prefix: 'smart search', forceSearch: true })}
+            disabled={!input.trim() || loading}
+            style={{
+              padding: '4px 14px',
+              backgroundColor: 'rgba(56, 189, 248, 0.12)',
+              border: '1px solid rgba(56, 189, 248, 0.25)',
+              color: '#38bdf8',
+              borderRadius: '20px',
+              fontSize: '10px',
+              fontFamily: 'monospace',
+              cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
+              opacity: input.trim() && !loading ? 1 : 0.5,
+              transition: 'all 0.3s'
+            }}
+          >
+            🔍 SMART SEARCH
+          </button>
         </div>
+
+        {lastSearch && (
+          <div style={{
+            marginBottom: '12px',
+            padding: '10px 14px',
+            backgroundColor: 'rgba(56, 189, 248, 0.05)',
+            borderRadius: '8px',
+            border: '1px solid rgba(56, 189, 248, 0.12)',
+          }}>
+            <div style={{ fontSize: '9px', color: '#38bdf8', marginBottom: '6px', letterSpacing: '2px' }}>
+              ▸ SMART SEARCH ({lastSearch.mode || 'web'}) — {lastSearch.query}
+            </div>
+            {(lastSearch.sources || []).slice(0, 3).map((source, i) => (
+              <div key={i} style={{ fontSize: '11px', color: '#94a3b8', padding: '2px 0' }}>
+                ↳ {source.title}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Topics Panel */}
         {showTopics && topics.length > 0 && (
@@ -562,7 +612,7 @@ function App() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={isListening ? "🎤 Listening..." : "Type or speak to JARVIS..."}
+            placeholder={isListening ? "🎤 Listening..." : "Ask JARVIS — news, trends, or anything..."}
             style={{ 
               flex: 1, 
               padding: '12px 16px', 

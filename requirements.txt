@@ -1,0 +1,11 @@
+flask
+flask-cors
+ollama
+edge-tts
+SpeechRecognition
+opencv-contrib-python
+numpy
+sounddevice
+soundfile
+requests
+ddgs

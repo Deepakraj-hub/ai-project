@@ -1,16 +1,16 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from jarvis import Memory, LocationEngine, SelfModEngine, ask_brain, speak
-import re  # <-- ADD THIS IMPORT
+from jarvis import Memory, LocationEngine, SelfModEngine, SmartSearchEngine, ask_brain, speak
+import re
 import threading
 
 app = Flask(__name__)
-CORS(app)  # Allows your React frontend to connect securely
+CORS(app)
 
-# Initialize the core components exactly like your main loop
 memory = Memory()
 location_engine = LocationEngine(memory)
 self_mod_engine = SelfModEngine(memory)
+smart_search_engine = SmartSearchEngine()
 
 # Store topics and recalls in memory (could be moved to SQLite)
 topics_store = []
@@ -154,8 +154,12 @@ def chat():
         return jsonify({"text": "No message provided.", "expression": "neutral"}), 400
 
     try:
-        # Call ask_brain
-        ai_text = ask_brain(memory, user_id, user_name, user_message, location_engine, self_mod_engine)
+        force_search = bool(data.get("force_search", False))
+        ai_text, search_meta = ask_brain(
+            memory, user_id, user_name, user_message,
+            location_engine, self_mod_engine, smart_search_engine,
+            force_search=force_search,
+        )
         
         # Play the voice response asynchronously in the background
         threading.Thread(target=speak, args=(ai_text,), daemon=True).start()
@@ -187,7 +191,11 @@ def chat():
             "text": ai_text,
             "expression": expression,
             "topics": topics,
-            "recalls": recalls
+            "recalls": recalls,
+            "search_used": search_meta.get("used", False),
+            "search_mode": search_meta.get("mode"),
+            "search_query": search_meta.get("query"),
+            "sources": search_meta.get("sources", []),
         })
 
     except Exception as e:
@@ -196,8 +204,33 @@ def chat():
             "text": f"JARVIS: Memory core error. Details: {str(e)}",
             "expression": "neutral",
             "topics": [],
-            "recalls": []
+            "recalls": [],
+            "search_used": False,
+            "sources": [],
         }), 500
+
+
+@app.route("/api/smart-search", methods=["POST"])
+def smart_search():
+    data = request.json or {}
+    query = data.get("query", "").strip()
+    force = bool(data.get("force", True))
+
+    if not query:
+        return jsonify({"error": "No query provided."}), 400
+
+    try:
+        payload = smart_search_engine.search(query, force=force)
+        return jsonify({
+            "query": payload.get("query", query),
+            "mode": payload.get("mode"),
+            "used": payload.get("used", False),
+            "results": payload.get("results", []),
+            "sources": payload.get("sources", []),
+            "context": payload.get("context", ""),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/topics", methods=["GET"])

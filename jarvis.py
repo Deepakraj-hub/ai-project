@@ -33,9 +33,15 @@ NEW UPGRADE FEATURES:
      - Recalls previous conversation highlights
      - Memory Core can be toggled on/off
 
+  8. Smart Search (DuckDuckGo)
+     - Automatically searches the web for current affairs, news, and trends
+     - Uses DuckDuckGo news + web results and injects them into the brain context
+     - Triggered automatically for time-sensitive questions
+     - Explicit commands: "smart search ...", "what's trending", "latest news"
+
 Requirements:
-    pip install ollama edge-tts SpeechRecognition
-    pip install opencv-contrib-python numpy sounddevice soundfile requests
+    pip install ollama edge-tts SpeechRecognition ddgs
+    pip install opencv-contrib-python numpy sounddevice soundfile requests flask flask-cors
 
 IMPORTANT: use `opencv-contrib-python`, NOT `opencv-python`.
 The contrib build includes cv2.face (LBPH recognizer).
@@ -78,6 +84,16 @@ try:
 except ImportError:
     _OLLAMA_AVAILABLE = False
 
+try:
+    from ddgs import DDGS
+    _DDGS_AVAILABLE = True
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS
+        _DDGS_AVAILABLE = True
+    except ImportError:
+        _DDGS_AVAILABLE = False
+
 # ═══════════════════════════════════════════════════════════════════════════
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════════
@@ -103,6 +119,11 @@ SILENCE_THRESHOLD = 400
 SELF_SOURCE_PATH   = os.path.abspath(__file__)   # path to THIS file
 CODE_BACKUP_DIR    = "jarvis_code_backups"        # folder for versioned backups
 ML_FEEDBACK_WINDOW = 10                           # last N exchanges to evaluate
+
+# Smart search settings
+SEARCH_MAX_RESULTS   = 6
+SEARCH_CACHE_TTL   = 300                            # seconds
+SEARCH_NEWS_DAYS   = 7
 
 # ═══════════════════════════════════════════════════════════════════════════
 # MEMORY (SQLite) — extended with location + code_changelog tables
@@ -566,6 +587,235 @@ class LocationEngine:
             "source": "user (manual)", "timestamp": datetime.now().isoformat()
         }
         return True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FEATURE — SMART SEARCH (DuckDuckGo: news, trends, current affairs)
+# ═══════════════════════════════════════════════════════════════════════════
+class SmartSearchEngine:
+    """
+    Uses DuckDuckGo to fetch live web and news results for current affairs,
+    trends, and time-sensitive questions that the local LLM cannot answer well.
+    """
+
+    EXPLICIT_TRIGGERS = [
+        "smart search", "search the web", "search online", "look up online",
+        "google it", "web search", "search for", "look up", "find out about",
+        "what is trending", "what's trending", "current affairs", "latest news",
+        "breaking news", "today's news", "news about", "recent news",
+        "what happened today", "what is happening", "what's happening",
+        "current trends", "trending now", "trending topics",
+    ]
+
+    TIME_SENSITIVE_WORDS = [
+        "latest", "current", "recent", "today", "now", "this week", "this month",
+        "this year", "2024", "2025", "2026", "2027", "breaking", "update",
+        "newest", "headline", "headlines", "live", "real-time", "real time",
+    ]
+
+    NEWS_WORDS = [
+        "news", "affair", "affairs", "politics", "election", "market",
+        "stock", "weather forecast", "score", "match result", "who won",
+        "president", "prime minister", "gdp", "inflation", "war", "summit",
+    ]
+
+    TREND_TRIGGERS = [
+        "what is trending", "what's trending", "trending topics", "trending now",
+        "current trends", "popular now", "what is popular", "what's popular",
+        "viral", "hot topics", "top stories",
+    ]
+
+    STRIP_PREFIXES = [
+        r"^(?:jarvis[, ]*)?",
+        r"^(?:please )?",
+        r"^(?:can you )?",
+        r"^(?:could you )?",
+        r"^(?:smart search(?: for| about)? )",
+        r"^(?:search(?: the web| online)?(?: for| about)? )",
+        r"^(?:look up(?: online)? )",
+        r"^(?:find out about )",
+        r"^(?:tell me about )",
+        r"^(?:what(?:'s| is) (?:the )?(?:latest|current|recent) )",
+    ]
+
+    def __init__(self):
+        self._cache: dict[str, tuple[float, dict]] = {}
+        self._lock = threading.Lock()
+
+    def _cache_get(self, key: str):
+        with self._lock:
+            entry = self._cache.get(key)
+            if not entry:
+                return None
+            ts, payload = entry
+            if time.time() - ts > SEARCH_CACHE_TTL:
+                del self._cache[key]
+                return None
+            return payload
+
+    def _cache_set(self, key: str, payload: dict):
+        with self._lock:
+            self._cache[key] = (time.time(), payload)
+
+    def _clean_query(self, text: str) -> str:
+        query = text.strip().rstrip("?.!,")
+        for pattern in self.STRIP_PREFIXES:
+            query = re.sub(pattern, "", query, flags=re.IGNORECASE).strip()
+        return query or text.strip()
+
+    def classify(self, text: str) -> dict:
+        lower = text.lower().strip()
+        explicit = any(t in lower for t in self.EXPLICIT_TRIGGERS)
+        trend = any(t in lower for t in self.TREND_TRIGGERS)
+        time_sensitive = any(w in lower for w in self.TIME_SENSITIVE_WORDS)
+        news_like = any(w in lower for w in self.NEWS_WORDS)
+
+        score = 0
+        if explicit:
+            score += 4
+        if trend:
+            score += 3
+        if time_sensitive:
+            score += 2
+        if news_like:
+            score += 2
+        if "?" in text:
+            score += 1
+
+        mode = "news" if (trend or news_like or time_sensitive) else "web"
+        if trend:
+            mode = "trends"
+
+        return {
+            "needs_search": score >= 2 or explicit,
+            "mode": mode,
+            "score": score,
+            "query": self._clean_query(text),
+        }
+
+    def _run_ddgs(self, method: str, query: str, max_results: int = SEARCH_MAX_RESULTS):
+        if not _DDGS_AVAILABLE:
+            return []
+        try:
+            ddgs = DDGS()
+            fn = getattr(ddgs, method)
+            return list(fn(query, max_results=max_results))
+        except Exception as e:
+            print(f"[SmartSearch] DuckDuckGo {method} error: {e}")
+            return []
+
+    def _search_news(self, query: str, max_results: int = SEARCH_MAX_RESULTS):
+        results = self._run_ddgs("news", query, max_results)
+        formatted = []
+        for item in results:
+            formatted.append({
+                "title": item.get("title", "").strip(),
+                "body": item.get("body", item.get("excerpt", "")).strip(),
+                "url": item.get("url", item.get("href", "")).strip(),
+                "source": item.get("source", "").strip(),
+                "date": item.get("date", "").strip(),
+                "type": "news",
+            })
+        return [r for r in formatted if r["title"]]
+
+    def _search_web(self, query: str, max_results: int = SEARCH_MAX_RESULTS):
+        results = self._run_ddgs("text", query, max_results)
+        formatted = []
+        for item in results:
+            formatted.append({
+                "title": item.get("title", "").strip(),
+                "body": item.get("body", item.get("snippet", "")).strip(),
+                "url": item.get("href", item.get("url", "")).strip(),
+                "source": item.get("source", "").strip(),
+                "date": "",
+                "type": "web",
+            })
+        return [r for r in formatted if r["title"]]
+
+    def _search_trends(self, query: str = "trending news today"):
+        news = self._search_news(query, max_results=SEARCH_MAX_RESULTS)
+        if news:
+            return news
+        return self._search_web("top trending topics today", max_results=SEARCH_MAX_RESULTS)
+
+    def search(self, text: str, force: bool = False) -> dict:
+        classification = self.classify(text)
+        if not force and not classification["needs_search"]:
+            return {
+                "used": False,
+                "mode": classification["mode"],
+                "query": classification["query"],
+                "results": [],
+                "context": "",
+                "sources": [],
+            }
+
+        query = classification["query"]
+        mode = classification["mode"]
+        cache_key = f"{mode}:{query.lower()}"
+        cached = self._cache_get(cache_key)
+        if cached:
+            return cached
+
+        print(f"[SmartSearch] Searching ({mode}): {query}")
+
+        if mode == "trends":
+            results = self._search_trends(query)
+        elif mode == "news":
+            results = self._search_news(query)
+            if len(results) < 2:
+                results = self._search_web(query) or results
+        else:
+            results = self._search_web(query)
+            if len(results) < 2:
+                results = self._search_news(query) or results
+
+        context_lines = [
+            f"LIVE WEB SEARCH RESULTS (via DuckDuckGo, mode: {mode})",
+            f"Search query: {query}",
+            f"Retrieved: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            "",
+        ]
+        sources = []
+        for i, item in enumerate(results[:SEARCH_MAX_RESULTS], 1):
+            line = f"{i}. {item['title']}"
+            if item.get("source"):
+                line += f" — {item['source']}"
+            if item.get("date"):
+                line += f" ({item['date']})"
+            context_lines.append(line)
+            if item.get("body"):
+                context_lines.append(f"   {item['body'][:280]}")
+            if item.get("url"):
+                context_lines.append(f"   Source: {item['url']}")
+                sources.append({"title": item["title"], "url": item["url"]})
+            context_lines.append("")
+
+        if not results:
+            context_lines.append("(No live results returned. Answer from general knowledge and say results were unavailable.)")
+
+        payload = {
+            "used": bool(results),
+            "mode": mode,
+            "query": query,
+            "results": results[:SEARCH_MAX_RESULTS],
+            "context": "\n".join(context_lines).strip(),
+            "sources": sources[:SEARCH_MAX_RESULTS],
+        }
+        if results:
+            self._cache_set(cache_key, payload)
+        return payload
+
+    def format_for_brain(self, search_payload: dict, user_prompt: str) -> str:
+        if not search_payload.get("used"):
+            return user_prompt
+        return (
+            f"{search_payload['context']}\n\n"
+            f"USER QUESTION:\n{user_prompt}\n\n"
+            "INSTRUCTIONS: Use the live search results above to answer accurately. "
+            "Mention key facts and dates when available. If results conflict, note uncertainty. "
+            "Do not invent news that is not supported by the search results."
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1048,21 +1298,39 @@ CAPABILITIES YOU SHOULD KNOW ABOUT:
 - You know your current location and can update it on request
 - You can extract topics from conversations
 - You can recall previous conversations
+- You can perform Smart Search via DuckDuckGo for current affairs, news, and trends
+  (triggered automatically for time-sensitive questions, or say "smart search ...")
 
 Use facts naturally to personalize responses. Be concise, helpful, and
-adapt your tone to the user over time. Never invent facts you don't know."""
+adapt your tone to the user over time. Never invent facts you don't know.
+When live search results are provided, prioritize them for current events."""
 
 
 def ask_brain(memory, user_id, user_name, prompt,
-              location_engine=None, self_mod_engine=None):
+              location_engine=None, self_mod_engine=None,
+              smart_search_engine=None, force_search=False):
     system_prompt = build_system_prompt(memory, user_id, user_name, location_engine)
     history = memory.get_recent_messages(user_id, MAX_CONTEXT_MESSAGES)
 
+    brain_prompt = prompt
+    search_meta = {"used": False, "mode": None, "query": prompt, "sources": []}
+    if smart_search_engine:
+        search_payload = smart_search_engine.search(prompt, force=force_search)
+        search_meta = {
+            "used": search_payload.get("used", False),
+            "mode": search_payload.get("mode"),
+            "query": search_payload.get("query", prompt),
+            "sources": search_payload.get("sources", []),
+        }
+        if search_payload.get("used"):
+            brain_prompt = smart_search_engine.format_for_brain(search_payload, prompt)
+            print(f"[SmartSearch] Injected {len(search_payload.get('results', []))} results into brain context")
+
     messages = [{"role": "system", "content": system_prompt}] + history
-    messages.append({"role": "user", "content": prompt})
+    messages.append({"role": "user", "content": brain_prompt})
 
     if not _OLLAMA_AVAILABLE:
-        return "[Ollama not installed — text response unavailable.]"
+        return "[Ollama not installed — text response unavailable.]", search_meta
 
     response = ollama.chat(model=BRAIN_MODEL, messages=messages)
     answer = response["message"]["content"]
@@ -1088,7 +1356,7 @@ def ask_brain(memory, user_id, user_name, prompt,
             daemon=True,
         ).start()
 
-    return answer
+    return answer, search_meta
 
 
 def extract_and_store_facts(memory, user_id, user_text, assistant_text):
@@ -1147,7 +1415,8 @@ def analyze_image(image_path):
 
 
 def vision_reasoning(memory, user_id, user_name, image_path,
-                     location_engine=None, self_mod_engine=None):
+                     location_engine=None, self_mod_engine=None,
+                     smart_search_engine=None):
     print("Analyzing image...")
     vision_result = analyze_image(image_path)
     print("\nVision Result:\n", vision_result)
@@ -1161,7 +1430,7 @@ Explain this image intelligently. Identify:
 - interesting observations
 """
     return ask_brain(memory, user_id, user_name, final_prompt,
-                     location_engine, self_mod_engine)
+                     location_engine, self_mod_engine, smart_search_engine)[0]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1208,6 +1477,18 @@ CODE_HISTORY_TRIGGERS = [
     "show your changelog",
 ]
 
+SMART_SEARCH_TRIGGERS = [
+    "smart search", "search the web", "search online", "web search",
+    "look up online", "what is trending", "what's trending",
+    "current affairs", "latest news", "breaking news", "today's news",
+    "trending topics", "trending now", "what is happening", "what's happening",
+]
+
+SMART_SEARCH_FORCE_PREFIXES = [
+    "smart search", "search the web for", "search online for", "web search for",
+    "look up online", "search for",
+]
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # MAIN LOOP
@@ -1218,6 +1499,7 @@ def main():
     location_engine = LocationEngine(memory)
     camera_view = CameraViewEngine(location_engine)
     self_mod_engine = SelfModEngine(memory)
+    smart_search_engine = SmartSearchEngine()
 
     user_id, user_name = identify_user(memory, face_engine)
 
@@ -1244,7 +1526,8 @@ def main():
         elif cmd.startswith("image"):
             image_path = input("Enter image path: ").strip()
             if os.path.exists(image_path):
-                answer = vision_reasoning(memory, user_id, user_name, image_path, location_engine, self_mod_engine)
+                answer = vision_reasoning(memory, user_id, user_name, image_path,
+                                          location_engine, self_mod_engine, smart_search_engine)
                 speak(answer)
             else:
                 speak("I couldn't find that image file.")
@@ -1253,7 +1536,8 @@ def main():
             speak("Let me take a look.")
             image_path = capture_webcam_image()
             if image_path:
-                answer = vision_reasoning(memory, user_id, user_name, image_path, location_engine, self_mod_engine)
+                answer = vision_reasoning(memory, user_id, user_name, image_path,
+                                          location_engine, self_mod_engine, smart_search_engine)
                 speak(answer)
                 try:
                     os.remove(image_path)
@@ -1322,8 +1606,24 @@ def main():
             else:
                 speak("I haven't stored any recalls yet.")
 
+        elif _any(SMART_SEARCH_TRIGGERS, cmd):
+            force = any(cmd.startswith(p) for p in SMART_SEARCH_FORCE_PREFIXES)
+            speak("Running smart search via DuckDuckGo. One moment.")
+            search_payload = smart_search_engine.search(command, force=True)
+            if not search_payload.get("results"):
+                speak("I couldn't fetch live results right now. I'll answer from what I know.")
+                answer, _ = ask_brain(memory, user_id, user_name, command,
+                                      location_engine, self_mod_engine, smart_search_engine, force_search=force)
+            else:
+                answer, _ = ask_brain(memory, user_id, user_name, command,
+                                      location_engine, self_mod_engine, smart_search_engine, force_search=True)
+            speak(answer)
+
         else:
-            answer = ask_brain(memory, user_id, user_name, command, location_engine, self_mod_engine)
+            answer, search_meta = ask_brain(memory, user_id, user_name, command,
+                                            location_engine, self_mod_engine, smart_search_engine)
+            if search_meta.get("used"):
+                print(f"[SmartSearch] Auto-search used ({search_meta.get('mode')}): {search_meta.get('query')}")
             speak(answer)
 
 
