@@ -10,6 +10,12 @@ __pycache__/
 *.db
 jarvis_code_backups/
 
+# Lily agent runtime output
+projects/
+workspace/
+ramen-website/
+test_agent.py
+
 # Media / Temp files
 *.mp3
 *.crdownload

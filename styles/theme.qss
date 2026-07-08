@@ -1,0 +1,364 @@
+/* ═══════════════════════════════════════════════════════════════
+   LILY AI — Premium Dark Theme (QSS)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── GLOBAL ──────────────────────────────────────────────────── */
+* {
+    font-family: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
+    color: #f1f5f9;
+}
+
+QMainWindow {
+    background: #060610;
+}
+
+QWidget#centralWidget {
+    background: transparent;
+}
+
+/* ── AVATAR PANEL ────────────────────────────────────────────── */
+QWidget#avatarPanel {
+    background: transparent;
+}
+
+QLabel#brandTitle {
+    font-family: "Segoe UI Semibold", "Inter", sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 8px;
+    color: #c084fc;
+}
+
+QLabel#brandSub {
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: #475569;
+    font-weight: 500;
+}
+
+QLabel#statusLabel {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    font-weight: 500;
+    color: #4ade80;
+}
+
+QLabel#statusLabelOffline {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    font-weight: 500;
+    color: #fb7185;
+}
+
+QLabel#expressionTag {
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: #475569;
+}
+
+/* ── CONSOLE PANEL ───────────────────────────────────────────── */
+QWidget#consolePanel {
+    background: rgba(14, 14, 32, 165);
+    border-left: 1px solid rgba(148, 163, 184, 20);
+}
+
+QLabel#panelTitle {
+    font-family: "Segoe UI Semibold", "Inter", sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    color: #c084fc;
+}
+
+QLabel#panelTime {
+    font-size: 10px;
+    color: #475569;
+}
+
+/* ── TOOLBAR BUTTONS ─────────────────────────────────────────── */
+QPushButton#toolbarBtn {
+    padding: 6px 16px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    border: 1px solid rgba(148, 163, 184, 20);
+    background: transparent;
+    color: #94a3b8;
+}
+
+QPushButton#toolbarBtn:hover {
+    background: rgba(20, 20, 45, 190);
+    border-color: rgba(168, 85, 247, 50);
+    color: #f1f5f9;
+}
+
+QPushButton#toolbarBtn:checked {
+    background: rgba(168, 85, 247, 30);
+    border-color: rgba(168, 85, 247, 50);
+    color: #c084fc;
+}
+
+QPushButton#memoryBtnOn {
+    padding: 6px 16px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    border: 1px solid rgba(74, 222, 128, 65);
+    background: rgba(74, 222, 128, 25);
+    color: #4ade80;
+}
+
+QPushButton#memoryBtnOn:hover {
+    border-color: rgba(74, 222, 128, 100);
+    background: rgba(74, 222, 128, 40);
+}
+
+QPushButton#memoryBtnOff {
+    padding: 6px 16px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    border: 1px solid rgba(251, 113, 133, 65);
+    background: rgba(251, 113, 133, 25);
+    color: #fb7185;
+}
+
+QPushButton#memoryBtnOff:hover {
+    border-color: rgba(251, 113, 133, 100);
+    background: rgba(251, 113, 133, 40);
+}
+
+QPushButton#searchBtn {
+    padding: 6px 16px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    border: 1px solid rgba(34, 211, 238, 50);
+    background: rgba(34, 211, 238, 25);
+    color: #22d3ee;
+}
+
+QPushButton#searchBtn:hover {
+    border-color: rgba(34, 211, 238, 100);
+    background: rgba(34, 211, 238, 40);
+}
+
+QPushButton#searchBtn:disabled {
+    opacity: 0.4;
+}
+
+/* ── CHAT AREA ───────────────────────────────────────────────── */
+QScrollArea#chatScroll {
+    background: rgba(0, 0, 0, 50);
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 20);
+}
+
+QWidget#chatContent {
+    background: transparent;
+}
+
+/* Chat scrollbar */
+QScrollArea#chatScroll QScrollBar:vertical {
+    background: transparent;
+    width: 5px;
+    margin: 4px 0;
+}
+
+QScrollArea#chatScroll QScrollBar::handle:vertical {
+    background: rgba(168, 85, 247, 60);
+    border-radius: 2px;
+    min-height: 30px;
+}
+
+QScrollArea#chatScroll QScrollBar::handle:vertical:hover {
+    background: rgba(168, 85, 247, 100);
+}
+
+QScrollArea#chatScroll QScrollBar::add-line:vertical,
+QScrollArea#chatScroll QScrollBar::sub-line:vertical,
+QScrollArea#chatScroll QScrollBar::add-page:vertical,
+QScrollArea#chatScroll QScrollBar::sub-page:vertical {
+    height: 0;
+    background: transparent;
+}
+
+/* ── MESSAGE BUBBLES ─────────────────────────────────────────── */
+QFrame#msgLily {
+    background: rgba(168, 85, 247, 30);
+    border-left: 3px solid #a855f7;
+    border-radius: 8px;
+    padding: 0;
+}
+
+QFrame#msgUser {
+    background: rgba(255, 255, 255, 8);
+    border-left: 3px solid rgba(255, 255, 255, 40);
+    border-radius: 8px;
+    padding: 0;
+}
+
+QLabel#roleLily {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #c084fc;
+}
+
+QLabel#roleUser {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #475569;
+}
+
+QLabel#msgText {
+    font-size: 13px;
+    color: #f1f5f9;
+    line-height: 1.5;
+}
+
+/* ── THINKING INDICATOR ──────────────────────────────────────── */
+QLabel#thinkingLabel {
+    font-size: 12px;
+    color: #475569;
+    font-style: italic;
+    padding: 8px 12px;
+}
+
+/* ── INPUT AREA ──────────────────────────────────────────────── */
+QLineEdit#chatInput {
+    padding: 12px 16px;
+    background: rgba(0, 0, 0, 100);
+    border: 1px solid rgba(148, 163, 184, 20);
+    border-radius: 8px;
+    color: #f1f5f9;
+    font-size: 13px;
+    selection-background-color: rgba(168, 85, 247, 80);
+}
+
+QLineEdit#chatInput:focus {
+    border-color: #a855f7;
+}
+
+QLineEdit#chatInput::placeholder {
+    color: #334155;
+}
+
+QPushButton#voiceBtn {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    min-height: 42px;
+    max-width: 42px;
+    max-height: 42px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 20);
+    background: transparent;
+    color: #94a3b8;
+    font-size: 16px;
+}
+
+QPushButton#voiceBtn:hover {
+    background: rgba(20, 20, 45, 190);
+    border-color: rgba(168, 85, 247, 50);
+    color: #f1f5f9;
+}
+
+QPushButton#voiceBtnActive {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    min-height: 42px;
+    max-width: 42px;
+    max-height: 42px;
+    border-radius: 8px;
+    border: 1px solid rgba(74, 222, 128, 90);
+    background: rgba(74, 222, 128, 25);
+    color: #4ade80;
+    font-size: 16px;
+}
+
+QPushButton#sendBtn {
+    padding: 0 22px;
+    height: 42px;
+    min-height: 42px;
+    border-radius: 8px;
+    border: none;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #a855f7, stop:1 #7c3aed);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+}
+
+QPushButton#sendBtn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #c084fc, stop:1 #a855f7);
+}
+
+QPushButton#sendBtn:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #9333ea, stop:1 #6d28d9);
+}
+
+/* ── TOPICS/RECALLS INFO PANELS ──────────────────────────────── */
+QFrame#infoPanel {
+    background: rgba(168, 85, 247, 30);
+    border-radius: 8px;
+    border: 1px solid rgba(168, 85, 247, 20);
+    padding: 10px 12px;
+}
+
+QLabel#infoPanelLabel {
+    font-size: 9px;
+    color: #475569;
+    letter-spacing: 2px;
+    font-weight: 600;
+}
+
+QLabel#topicTag {
+    padding: 3px 12px;
+    background: rgba(168, 85, 247, 25);
+    border-radius: 14px;
+    font-size: 11px;
+    color: #c084fc;
+    font-weight: 500;
+}
+
+QLabel#recallItem {
+    font-size: 11px;
+    color: #94a3b8;
+    padding: 3px 0;
+}
+
+/* ── SEARCH BANNER ───────────────────────────────────────────── */
+QFrame#searchBanner {
+    background: rgba(34, 211, 238, 25);
+    border-radius: 8px;
+    border: 1px solid rgba(34, 211, 238, 25);
+    padding: 8px 12px;
+}
+
+QLabel#searchBannerTitle {
+    font-size: 9px;
+    color: #22d3ee;
+    letter-spacing: 2px;
+    font-weight: 600;
+}
+
+QLabel#searchSource {
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+/* ── GRADIENT STRIPE (top of console) ────────────────────────── */
+QWidget#gradientStripe {
+    max-height: 2px;
+    min-height: 2px;
+}

@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from jarvis import Memory, LocationEngine, SelfModEngine, SmartSearchEngine, ask_brain, warm_up_brain
+from lily.brain.agent import AutonomousAgent
 import re
 import threading
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -11,6 +13,8 @@ memory = Memory()
 location_engine = LocationEngine(memory)
 self_mod_engine = SelfModEngine(memory)
 smart_search_engine = SmartSearchEngine()
+project_root = os.path.dirname(os.path.abspath(__file__))
+autonomous_agent = AutonomousAgent(project_root=project_root, search_engine=smart_search_engine)
 
 # Pre-load local LLM in background so first chat feels faster
 threading.Thread(target=warm_up_brain, daemon=True).start()
@@ -247,6 +251,46 @@ def get_recalls():
 @app.route("/api/memory/status", methods=["GET"])
 def memory_status():
     return jsonify({"connected": True})
+
+
+@app.route("/api/agent/tools", methods=["GET"])
+def agent_tools():
+    return jsonify({"tools": autonomous_agent.discover_tools()})
+
+
+@app.route("/api/agent/run", methods=["POST"])
+def agent_run():
+    data = request.json or {}
+    goal = data.get("goal", "").strip()
+    if not goal:
+        return jsonify({"error": "No goal provided."}), 400
+
+    try:
+        result = autonomous_agent.run(
+            goal=goal,
+            task_id=data.get("task_id"),
+            max_steps=int(data.get("max_steps", 8)),
+            approvals=data.get("approvals") or {},
+        )
+        return jsonify({
+            "task_id": result.task_id,
+            "status": result.status.value,
+            "goal": result.goal,
+            "message": result.message,
+            "requires_permission": result.requires_permission,
+            "observations": [
+                {
+                    "step_id": obs.step_id,
+                    "success": obs.success,
+                    "summary": obs.summary,
+                    "data": obs.data,
+                    "error": obs.error,
+                }
+                for obs in result.observations
+            ],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

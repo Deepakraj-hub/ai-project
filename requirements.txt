@@ -9,3 +9,5 @@ sounddevice
 soundfile
 requests
 ddgs
+PySide6
+PySide6-WebEngine

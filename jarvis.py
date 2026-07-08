@@ -99,7 +99,7 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════════
 BRAIN_MODEL   = "gemma4:cloud"      # single model for vision and processing
 VISION_MODEL  = "gemma4:cloud"      # single model for vision and processing
-VOICE         = "en-US-JennyNeural"
+VOICE         = "en-US-AvaMultilingualNeural"
 
 # Ollama generation tuned for quick short replies
 FAST_CHAT_OPTIONS = {
@@ -1176,8 +1176,9 @@ def capture_webcam_image():
 # ═══════════════════════════════════════════════════════════════════════════
 async def _speak_async(text):
     filename = tempfile.mktemp(".mp3")
-    communicate = edge_tts.Communicate(text=text, voice=VOICE)
-    await communicate.save(filename)
+    from lily.voice import save_speech
+
+    await save_speech(edge_tts, text, filename)
     if _AUDIO_AVAILABLE:
         data, samplerate = sf.read(filename, dtype="float32")
         sd.play(data, samplerate)

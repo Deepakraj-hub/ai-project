@@ -93,6 +93,19 @@ html, body {
   z-index: 0;
 }
 
+/* ── AVATAR VIEWPORT FULLSCREEN ──────────────────────── */
+.avatar-viewport-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background: transparent;
+}
+
+.avatar-viewport-fullscreen canvas {
+  outline: none;
+}
+
 /* ── AVATAR VIEWPORT ──────────────────────── */
 .avatar-viewport {
   flex: 1.15;
