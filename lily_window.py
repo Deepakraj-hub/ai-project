@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QApplication, QLineEdit
 )
 
-from widgets.avatar_widget import AvatarWidget
+from widgets.audio_visualizer import AudioVisualizerBars
 from workers.brain_worker import BrainWorker, WarmUpWorker
 from workers.tts_worker import TTSWorker
 from workers.moshi_worker import MoshiVoiceWorker
@@ -94,7 +94,7 @@ def normalize_agent_goal(text: str) -> str:
 
 
 class SpeechBubbleWidget(QWidget):
-    """Small floating speech bubble positioned near the avatar."""
+    """Premium floating speech bubble positioned near the center."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -109,12 +109,12 @@ class SpeechBubbleWidget(QWidget):
         self._label.setWordWrap(True)
         self._label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self._label.setStyleSheet("""
-            background: rgba(7, 10, 26, 220);
-            color: #f8fafc;
-            border: 1px solid rgba(192, 132, 252, 0.65);
-            border-radius: 16px;
-            padding: 12px 14px;
-            font-size: 13px;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(30, 25, 50, 240), stop:1 rgba(20, 15, 35, 240));
+            color: #f1f5f9;
+            border: 1.5px solid rgba(168, 85, 247, 0.7);
+            border-radius: 18px;
+            padding: 16px 18px;
+            font-size: 14px;
             font-weight: 500;
         """)
         layout.addWidget(self._label)
@@ -134,7 +134,7 @@ class SpeechBubbleWidget(QWidget):
 
 
 class ChatInputOverlay(QWidget):
-    """Bottom floating chat input for typing to Lily."""
+    """Premium floating chat input at the bottom."""
 
     def __init__(self, parent=None, submit_callback=None):
         super().__init__(parent)
@@ -142,38 +142,50 @@ class ChatInputOverlay(QWidget):
         self.setStyleSheet("background: transparent;")
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setContentsMargins(24, 0, 24, 0)
+        layout.setSpacing(12)
 
         self._input = QLineEdit(self)
-        self._input.setPlaceholderText("Type to Lily...")
-        self._input.setMinimumHeight(46)
+        self._input.setPlaceholderText("Speak to Lily or type here...")
+        self._input.setMinimumHeight(50)
         self._input.setStyleSheet("""
             QLineEdit {
-                background: rgba(8, 10, 22, 220);
-                color: #f8fafc;
-                border: 1px solid rgba(192, 132, 252, 0.5);
-                border-radius: 999px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(30, 25, 50, 220), stop:1 rgba(20, 15, 40, 220));
+                color: #f1f5f9;
+                border: 1px solid rgba(168, 85, 247, 0.4);
+                border-radius: 12px;
                 padding: 0 16px;
-                font-size: 14px;
+                font-size: 15px;
+                font-weight: 500;
+            }
+            QLineEdit:focus {
+                border: 2px solid rgba(168, 85, 247, 0.8);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(35, 30, 60, 240), stop:1 rgba(25, 20, 45, 240));
             }
         """)
         self._input.returnPressed.connect(self._submit)
         layout.addWidget(self._input)
 
         self._send_button = QPushButton("Send", self)
-        self._send_button.setMinimumHeight(46)
+        self._send_button.setMinimumHeight(50)
+        self._send_button.setMinimumWidth(80)
         self._send_button.setCursor(Qt.PointingHandCursor)
         self._send_button.setStyleSheet("""
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7c3aed, stop:1 #2563eb);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #a855f7, stop:1 #7c3aed);
                 color: white;
                 border: none;
-                border-radius: 999px;
-                padding: 0 16px;
-                font-weight: 600;
+                border-radius: 12px;
+                font-weight: 700;
+                font-size: 14px;
+                letter-spacing: 1px;
             }
-            QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #8b5cf6, stop:1 #3b82f6); }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #c084fc, stop:1 #a855f7);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #9333ea, stop:1 #7c3aed);
+            }
         """)
         self._send_button.clicked.connect(self._submit)
         layout.addWidget(self._send_button)
@@ -192,20 +204,21 @@ class ChatInputOverlay(QWidget):
 
 
 class StatusOverlay(QWidget):
-    """Floating status bar overlay on top of the avatar."""
+    """Premium floating status bar overlay at the top."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
-        self.setFixedHeight(60)
+        self.setFixedHeight(70)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(24, 8, 24, 8)
+        layout.setContentsMargins(32, 12, 32, 12)
+        layout.setSpacing(0)
 
         # Status indicator (left)
         self._status = QLabel("● INITIALIZING")
         self._status.setStyleSheet("""
-            font-size: 10px; font-weight: 600; letter-spacing: 2px;
+            font-size: 11px; font-weight: 700; letter-spacing: 3px;
             color: #4ade80; background: transparent;
         """)
         layout.addWidget(self._status)
@@ -215,8 +228,9 @@ class StatusOverlay(QWidget):
         # Brand (center)
         brand = QLabel("LILY")
         brand.setStyleSheet("""
-            font-size: 20px; font-weight: 700; letter-spacing: 8px;
-            color: #c084fc; background: transparent;
+            font-size: 28px; font-weight: 900; letter-spacing: 12px;
+            color: #e0e7ff; background: transparent;
+            text-shadow: 0 0 30px rgba(192, 132, 252, 0.5);
         """)
         brand.setAlignment(Qt.AlignCenter)
         layout.addWidget(brand)
@@ -226,8 +240,8 @@ class StatusOverlay(QWidget):
         # Expression tag (right)
         self._expression = QLabel("○ IDLE")
         self._expression.setStyleSheet("""
-            font-size: 10px; font-weight: 500; letter-spacing: 1.5px;
-            color: #475569; background: transparent;
+            font-size: 11px; font-weight: 600; letter-spacing: 2px;
+            color: #94a3b8; background: transparent;
         """)
         layout.addWidget(self._expression)
 
@@ -235,54 +249,63 @@ class StatusOverlay(QWidget):
         self._status.setText(text)
         if "ACTIVE" in text or "LISTENING" in text:
             self._status.setStyleSheet("""
-                font-size: 10px; font-weight: 600; letter-spacing: 2px;
+                font-size: 11px; font-weight: 700; letter-spacing: 3px;
                 color: #4ade80; background: transparent;
             """)
         elif "SPEAKING" in text:
             self._status.setStyleSheet("""
-                font-size: 10px; font-weight: 600; letter-spacing: 2px;
+                font-size: 11px; font-weight: 700; letter-spacing: 3px;
                 color: #c084fc; background: transparent;
             """)
         elif "PROCESSING" in text:
             self._status.setStyleSheet("""
-                font-size: 10px; font-weight: 600; letter-spacing: 2px;
+                font-size: 11px; font-weight: 700; letter-spacing: 3px;
                 color: #22d3ee; background: transparent;
+            """)
+        elif "ERROR" in text:
+            self._status.setStyleSheet("""
+                font-size: 11px; font-weight: 700; letter-spacing: 3px;
+                color: #ef4444; background: transparent;
             """)
         else:
             self._status.setStyleSheet("""
-                font-size: 10px; font-weight: 600; letter-spacing: 2px;
-                color: #475569; background: transparent;
+                font-size: 11px; font-weight: 700; letter-spacing: 3px;
+                color: #94a3b8; background: transparent;
             """)
 
     def set_expression(self, text: str):
         self._expression.setText(text)
 
     def paintEvent(self, event):
-        """Draw a subtle gradient background."""
+        """Draw a premium gradient background."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         grad = QLinearGradient(0, 0, 0, self.height())
-        grad.setColorAt(0, QColor(6, 6, 16, 200))
-        grad.setColorAt(1, QColor(6, 6, 16, 0))
+        grad.setColorAt(0, QColor(10, 14, 32, 240))
+        grad.setColorAt(1, QColor(10, 14, 32, 160))
         painter.fillRect(self.rect(), grad)
+        # Bottom border
+        painter.setPen(QColor(99, 102, 241, 80))
+        painter.drawLine(0, self.height() - 1, self.width(), self.height() - 1)
         painter.end()
 
 
+
 class BottomOverlay(QWidget):
-    """Floating bottom bar showing the live transcript."""
+    """Premium floating transcript bar at the bottom."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(80)
+        self.setFixedHeight(90)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 8, 40, 16)
+        layout.setContentsMargins(40, 12, 40, 20)
 
         self._transcript = QLabel("")
         self._transcript.setAlignment(Qt.AlignCenter)
         self._transcript.setWordWrap(True)
         self._transcript.setStyleSheet("""
-            font-size: 14px; font-weight: 500; color: rgba(241, 245, 249, 180);
+            font-size: 15px; font-weight: 500; color: rgba(241, 245, 249, 200);
             background: transparent;
         """)
         layout.addWidget(self._transcript)
@@ -296,11 +319,11 @@ class BottomOverlay(QWidget):
         prefix = "🎤 You" if speaker == "user" else "💜 Lily"
         self._transcript.setText(f"{prefix}: {text}")
         self._transcript.setStyleSheet(f"""
-            font-size: 14px; font-weight: 500;
-            color: {'rgba(241, 245, 249, 180)' if speaker == 'user' else 'rgba(192, 132, 252, 200)'};
+            font-size: 15px; font-weight: 500;
+            color: {'rgba(241, 245, 249, 200)' if speaker == 'user' else 'rgba(192, 132, 252, 220)'};
             background: transparent;
         """)
-        # Display time scales with text length, minimum 6 seconds, up to 20 seconds.
+        # Display time scales with text length
         display_time = max(6000, min(20000, len(text) * 100))
         self._hide_timer.start(display_time)
 
@@ -311,10 +334,12 @@ class BottomOverlay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         grad = QLinearGradient(0, 0, 0, self.height())
-        grad.setColorAt(0, QColor(6, 6, 16, 0))
-        grad.setColorAt(1, QColor(6, 6, 16, 220))
+        grad.setColorAt(0, QColor(10, 14, 32, 0))
+        grad.setColorAt(0.7, QColor(10, 14, 32, 180))
+        grad.setColorAt(1, QColor(10, 14, 32, 240))
         painter.fillRect(self.rect(), grad)
         painter.end()
+
 
 
 class LilyWindow(QMainWindow):
@@ -323,9 +348,14 @@ class LilyWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("LILY — Cognitive AI Core v2.0")
-        self.setMinimumSize(900, 600)
-        self.resize(1200, 800)
-        self.setStyleSheet("QMainWindow { background: #060610; }")
+        self.setMinimumSize(1000, 700)
+        self.resize(1400, 900)
+        self.setStyleSheet("""
+            QMainWindow {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #0a0e20, stop:0.5 #1a1530, stop:1 #0f0d19);
+            }
+        """)
 
         # ── Initialize AI engines ──
         from jarvis import Memory, LocationEngine, SelfModEngine, SmartSearchEngine
@@ -397,10 +427,10 @@ class LilyWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # ═══ AVATAR (fills entire window) ═══
-        self._avatar = AvatarWidget()
-        self._avatar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        main_layout.addWidget(self._avatar)
+        # ═══ VISUALIZER (center) ═══
+        self._visualizer = AudioVisualizerBars(central)
+        self._visualizer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        main_layout.addWidget(self._visualizer)
 
         # ═══ OVERLAY: Status bar (top) ═══
         self._status_overlay = StatusOverlay(central)
@@ -423,10 +453,10 @@ class LilyWindow(QMainWindow):
         super().resizeEvent(event)
         w = self.centralWidget().width()
         h = self.centralWidget().height()
-        self._status_overlay.setGeometry(0, 0, w, 60)
-        self._bottom_overlay.setGeometry(0, h - 80, w, 80)
-        self._chat_input.setGeometry(max(24, w // 8), h - 122, max(320, w - (w // 4)), 70)
-        self._speech_bubble.setGeometry(max(24, w // 4), 92, min(420, max(280, w - (w // 2))), 110)
+        self._status_overlay.setGeometry(0, 0, w, 70)
+        self._bottom_overlay.setGeometry(0, h - 110, w, 110)
+        self._chat_input.setGeometry(max(32, w // 10), h - 180, max(350, w - (w // 5)), 60)
+        self._speech_bubble.setGeometry(max(32, w // 5), h // 3, min(500, max(300, w - (w // 3))), 120)
 
     def _load_theme(self):
         theme_path = os.path.join(os.path.dirname(__file__), "styles", "theme.qss")
@@ -530,7 +560,7 @@ class LilyWindow(QMainWindow):
 
         # Expression
         expr = detect_expression(ai_text)
-        self._avatar.set_expression(expr)
+        self._visualizer.set_expression(expr)
 
         # Show transcript and speech bubble
         self._bottom_overlay.show_text("assistant", ai_text)
@@ -588,7 +618,7 @@ class LilyWindow(QMainWindow):
 
     def _start_streaming_tts(self):
         self._is_speaking = True
-        self._avatar.set_talking(True)
+        self._visualizer.set_talking(True)
         self._status_overlay.set_status("● SPEAKING")
         self._status_overlay.set_expression("● SPEAKING")
         if self._moshi_worker:
@@ -605,9 +635,10 @@ class LilyWindow(QMainWindow):
         if self._tts_worker and self._tts_worker.isRunning():
             self._tts_worker.interrupt()
         self._is_speaking = True
-        self._avatar.set_talking(True)
+        self._visualizer.set_talking(True)
         self._status_overlay.set_status("● SPEAKING")
         self._status_overlay.set_expression("● SPEAKING")
+        self._bottom_overlay.show_text("assistant", text)
 
         if self._moshi_worker:
             self._moshi_worker.set_lily_speaking(True)
@@ -620,7 +651,7 @@ class LilyWindow(QMainWindow):
 
     def _on_tts_started(self):
         """TTS audio playback has begun."""
-        self._avatar.set_talking(True)
+        self._visualizer.set_talking(True)
 
     def _on_tts_finished(self):
         sender = self.sender()
@@ -628,8 +659,7 @@ class LilyWindow(QMainWindow):
             return
         """TTS finished — resume mic listening."""
         self._is_speaking = False
-        self._avatar.set_talking(False)
-        self._avatar.set_expression("neutral")
+        self._visualizer.set_talking(False)
         self._status_overlay.set_status("● DUPLEX ACTIVE")
         self._status_overlay.set_expression("● LISTENING")
         self._bottom_overlay._fade_text()
@@ -650,7 +680,7 @@ class LilyWindow(QMainWindow):
             self._tts_worker = None
             interrupted = True
         if interrupted:
-            self._avatar.set_talking(False)
+            self._visualizer.set_talking(False)
             self._status_overlay.set_status("● INTERRUPTED")
             self._status_overlay.set_expression("● THINKING")
             if self._moshi_worker:
