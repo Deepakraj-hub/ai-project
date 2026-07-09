@@ -1,0 +1,35 @@
+# LILY Streaming Voice Assistant Requirements
+# ============================================
+
+# Core AI/ML
+ollama>=0.1.0
+openai-whisper>=20231117
+numpy>=1.24.0
+
+# Audio I/O
+sounddevice>=0.4.6
+soundfile>=0.12.1
+pyaudio>=0.2.13
+
+# Text-to-Speech
+edge-tts>=6.1.9
+
+# Voice Activity Detection (optional, fallback to RMS)
+# silero-vad>=4.0.0
+
+# Speech Recognition (fallback)
+SpeechRecognition>=3.10.0
+
+# Web and networking
+requests>=2.31.0
+aiohttp>=3.9.0
+
+# Database
+# sqlite3 is built-in to Python
+
+# Computer vision (optional for face recognition)
+opencv-contrib-python>=4.8.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.0

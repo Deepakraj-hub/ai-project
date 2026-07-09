@@ -1,15 +1,20 @@
 """
-BrainWorker — QThread wrapper for ask_brain() and smart search.
-Runs AI inference off the main UI thread to keep the GUI responsive.
+BrainWorker - QThread wrappers for Lily's background AI tasks.
 """
+
+import re
+import threading
 
 from PySide6.QtCore import QThread, Signal
 
 
 class BrainWorker(QThread):
-    """Calls ask_brain() in a background thread and emits the result."""
+    """Streams Gemma output and emits complete sentences as they arrive."""
 
     finished = Signal(str, dict)   # (ai_text, search_meta)
+    token = Signal(str)
+    sentence = Signal(str)
+    interrupted = Signal()
     error = Signal(str)
 
     def __init__(self, memory, user_id, user_name, prompt,
@@ -25,11 +30,33 @@ class BrainWorker(QThread):
         self._smart_search_engine = smart_search_engine
         self._force_search = force_search
         self._auto_search = auto_search
+        self._interrupt_event = threading.Event()
+
+    def interrupt(self):
+        self._interrupt_event.set()
+
+    def _pop_sentences(self, buffer):
+        sentences = []
+        pattern = re.compile(r'(.+?[.!?]["\')\]]?)(?:\s+|$)', re.DOTALL)
+        while True:
+            match = pattern.match(buffer)
+            if not match:
+                break
+            sentence = re.sub(r"\s+", " ", match.group(1)).strip()
+            if sentence:
+                sentences.append(sentence)
+            buffer = buffer[match.end():]
+        return sentences, buffer
 
     def run(self):
         try:
-            from jarvis import ask_brain
-            ai_text, search_meta = ask_brain(
+            from jarvis import stream_brain
+
+            full_text = []
+            sentence_buffer = ""
+            search_meta = {"used": False, "mode": None, "query": self._prompt, "sources": []}
+
+            for event, payload in stream_brain(
                 self._memory,
                 self._user_id,
                 self._user_name,
@@ -39,10 +66,46 @@ class BrainWorker(QThread):
                 self._smart_search_engine,
                 force_search=self._force_search,
                 auto_search=self._auto_search,
-            )
-            self.finished.emit(ai_text, search_meta)
+                interrupt_event=self._interrupt_event,
+            ):
+                if self._interrupt_event.is_set():
+                    self.interrupted.emit()
+                    return
+
+                if event == "meta":
+                    search_meta = payload
+                    continue
+
+                if event == "chunk":
+                    full_text.append(payload)
+                    self.token.emit(payload)
+                    sentence_buffer += payload
+                    sentences, sentence_buffer = self._pop_sentences(sentence_buffer)
+                    for sentence in sentences:
+                        self.sentence.emit(sentence)
+                    continue
+
+                if event == "done":
+                    final_text = payload
+                    if sentence_buffer.strip():
+                        self.sentence.emit(re.sub(r"\s+", " ", sentence_buffer).strip())
+                    self.finished.emit(final_text, search_meta)
+                    return
+
+            if self._interrupt_event.is_set():
+                self.interrupted.emit()
+                return
+
+            final_text = "".join(full_text).strip()
+            if final_text:
+                if sentence_buffer.strip():
+                    self.sentence.emit(re.sub(r"\s+", " ", sentence_buffer).strip())
+                self.finished.emit(final_text, search_meta)
         except Exception as e:
-            self.error.emit(str(e))
+            if self._interrupt_event.is_set():
+                self.interrupted.emit()
+            else:
+                self.error.emit(str(e))
 
 
 class SmartSearchWorker(QThread):

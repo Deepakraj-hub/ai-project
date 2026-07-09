@@ -64,6 +64,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from lily.persona import build_persona_context, fallback_reply, polish_reply
+
 import cv2
 import edge_tts
 import numpy as np
@@ -1303,38 +1305,10 @@ def build_system_prompt(memory, user_id, user_name, location_engine=None):
 
     loc_text = location_engine.as_text(user_id) if location_engine else "unknown"
 
-    # Get recent topics and recalls
     topics = memory.get_recent_topics_text(user_id, 5)
     recalls = memory.get_recent_recalls_text(user_id, 3)
 
-    topics_text = f"\nRecent Topics: {', '.join(topics)}" if topics else ""
-    recalls_text = f"\nRecent Recalls: {', '.join(recalls)}" if recalls else ""
-
-    return f"""You are LILY, a warm, cute, intelligent personal AI assistant.
-You are currently speaking with {user_name}.
-
-PERSONALITY & STYLE (VERY IMPORTANT):
-- Default to SHORT, SWEET answers: 1-2 sentences, under 35 words.
-- Sound friendly, natural, and a little playful — never robotic or lecture-like.
-- Do NOT use emojis, bullet lists, or markdown unless the user explicitly asks for detail.
-- Only give long, detailed answers when the user clearly wants depth (e.g. "explain", "in detail", "tell me more").
-- Skip filler like "Certainly!", "Of course!", or long introductions — jump straight to the point.
-
-CURRENT LOCATION: {loc_text}
-Use location naturally only when relevant.
-
-Here is what you have learned about {user_name}:
-{facts_text}
-{topics_text}
-{recalls_text}
-
-CAPABILITIES (mention only if asked):
-- Live camera view ("show camera")
-- Self-improvement ("upgrade yourself")
-- Location awareness
-- Smart web search for news/trends ("smart search ...")
-
-Use facts naturally. Never invent facts. When live search results are provided, summarize briefly."""
+    return build_persona_context(user_name, loc_text, facts=[f"{fact} ({cat})" for fact, cat in facts], topics=topics, recalls=recalls)
 
 
 def user_wants_detail(text: str) -> bool:
@@ -1345,23 +1319,112 @@ def user_wants_detail(text: str) -> bool:
 
 
 def trim_response(text: str, detail_mode: bool) -> str:
-    if not text or detail_mode:
+    if not text:
+        return ""
+    if detail_mode:
         return text.strip()
-
-    cleaned = re.sub(r"\s+", " ", text.strip())
-    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
-    if len(sentences) <= 2 and len(cleaned) <= 220:
-        return cleaned
-
-    short = " ".join(sentences[:2]).strip()
-    if len(short) > 220:
-        short = short[:217].rstrip() + "..."
-    return short
+    return polish_reply(text, detail_mode=False)
 
 
 def ollama_reply(model: str, messages: list, options: dict) -> str:
     response = ollama.chat(model=model, messages=messages, options=options)
     return (response.get("message") or {}).get("content", "").strip()
+
+
+def _build_brain_request(memory, user_id, user_name, prompt,
+                         location_engine=None, smart_search_engine=None,
+                         force_search=False, auto_search=True):
+    detail_mode = user_wants_detail(prompt)
+    system_prompt = build_system_prompt(memory, user_id, user_name, location_engine)
+    if not detail_mode:
+        system_prompt += (
+            "\n\nREMINDER: Keep this reply SHORT -- max 2 sentences, no emojis, no lists."
+        )
+    history = memory.get_recent_messages(user_id, MAX_CONTEXT_MESSAGES)
+
+    brain_prompt = prompt
+    search_meta = {"used": False, "mode": None, "query": prompt, "sources": []}
+    if smart_search_engine and (force_search or auto_search):
+        search_payload = smart_search_engine.search(prompt, force=force_search)
+        search_meta = {
+            "used": search_payload.get("used", False),
+            "mode": search_payload.get("mode"),
+            "query": search_payload.get("query", prompt),
+            "sources": search_payload.get("sources", []),
+        }
+        if search_payload.get("used"):
+            brain_prompt = smart_search_engine.format_for_brain(search_payload, prompt)
+            print(f"[SmartSearch] Injected {len(search_payload.get('results', []))} results into brain context")
+
+    messages = [{"role": "system", "content": system_prompt}] + history
+    messages.append({"role": "user", "content": brain_prompt})
+    chat_options = DETAIL_CHAT_OPTIONS if detail_mode else FAST_CHAT_OPTIONS
+    return detail_mode, messages, chat_options, search_meta
+
+
+def _store_brain_exchange(memory, user_id, prompt, answer, self_mod_engine=None):
+    memory.add_message(user_id, "user", prompt)
+    memory.add_message(user_id, "assistant", answer)
+
+    threading.Thread(target=memory.extract_and_store_topics, args=(user_id, answer), daemon=True).start()
+    threading.Thread(target=memory.extract_and_store_recalls, args=(user_id, answer), daemon=True).start()
+    threading.Thread(
+        target=extract_and_store_facts,
+        args=(memory, user_id, prompt, answer),
+        daemon=True,
+    ).start()
+
+    if self_mod_engine:
+        threading.Thread(
+            target=self_mod_engine.record_exchange,
+            args=(user_id, prompt, answer),
+            daemon=True,
+        ).start()
+
+
+def stream_brain(memory, user_id, user_name, prompt,
+                 location_engine=None, self_mod_engine=None,
+                 smart_search_engine=None, force_search=False, auto_search=True,
+                 interrupt_event=None):
+    """Yield streaming brain events: ("meta", dict), ("chunk", str), ("done", str)."""
+    detail_mode, messages, chat_options, search_meta = _build_brain_request(
+        memory, user_id, user_name, prompt,
+        location_engine=location_engine,
+        smart_search_engine=smart_search_engine,
+        force_search=force_search,
+        auto_search=auto_search,
+    )
+    yield "meta", search_meta
+
+    if not _OLLAMA_AVAILABLE:
+        answer = fallback_reply(prompt, user_name, location_engine.as_text(user_id) if location_engine else "your location")
+        yield "chunk", answer
+        _store_brain_exchange(memory, user_id, prompt, answer, self_mod_engine)
+        yield "done", answer
+        return
+
+    parts = []
+    stream = ollama.chat(
+        model=BRAIN_MODEL,
+        messages=messages,
+        options=chat_options,
+        stream=True,
+    )
+    for chunk in stream:
+        if interrupt_event is not None and interrupt_event.is_set():
+            return
+        token = (chunk.get("message") or {}).get("content", "")
+        if not token:
+            continue
+        parts.append(token)
+        yield "chunk", token
+
+    answer = "".join(parts).strip()
+    if not answer:
+        answer = "Sorry, I blanked for a second -- could you ask again?"
+    answer = trim_response(answer, detail_mode)
+    _store_brain_exchange(memory, user_id, prompt, answer, self_mod_engine)
+    yield "done", answer
 
 
 def warm_up_brain():
@@ -1408,7 +1471,8 @@ def ask_brain(memory, user_id, user_name, prompt,
     messages.append({"role": "user", "content": brain_prompt})
 
     if not _OLLAMA_AVAILABLE:
-        return "[Ollama not installed — text response unavailable.]", search_meta
+        answer = fallback_reply(prompt, user_name, location_engine.as_text(user_id) if location_engine else "your location")
+        return answer, search_meta
 
     chat_options = DETAIL_CHAT_OPTIONS if detail_mode else FAST_CHAT_OPTIONS
     answer = ollama_reply(BRAIN_MODEL, messages, chat_options)

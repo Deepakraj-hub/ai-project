@@ -11,3 +11,6 @@ requests
 ddgs
 PySide6
 PySide6-WebEngine
+moshi
+torch
+huggingface_hub
